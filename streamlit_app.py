@@ -7,8 +7,6 @@ Streamlit Application
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import streamlit as st
 
 
@@ -25,10 +23,8 @@ st.set_page_config(
 
 
 # ============================================================
-# APPLICATION
+# APPLICATION CONSTANTS
 # ============================================================
-
-BASE_DIR = Path(__file__).resolve().parent
 
 APP_TITLE = "South Sudan National Registry"
 
@@ -61,13 +57,12 @@ PAGES = [
     "Administration",
 ]
 
-
 if st.session_state.active_page not in PAGES:
     st.session_state.active_page = "Overview"
 
 
 # ============================================================
-# CSS
+# GLOBAL CSS
 # ============================================================
 
 st.markdown(
@@ -206,7 +201,6 @@ st.markdown(
 
     .status-dot {
         width: 8px;
-
         height: 8px;
 
         border-radius: 50%;
@@ -232,7 +226,6 @@ st.markdown(
         gap: 6px;
     }
 
-
     div[data-testid="stRadio"] label {
         border-radius: 8px;
 
@@ -243,11 +236,11 @@ st.markdown(
 
 
     /* ========================================================
-       PAGE
+       PAGE HEADER
        ======================================================== */
 
     .page-title {
-        margin-top: 12px;
+        margin-top: 14px;
 
         margin-bottom: 4px;
 
@@ -269,7 +262,7 @@ st.markdown(
 
 
     /* ========================================================
-       KPI
+       KPI CARDS
        ======================================================== */
 
     .kpi-card {
@@ -296,6 +289,8 @@ st.markdown(
         color: #64748b;
 
         font-size: 12px;
+
+        font-weight: 600;
     }
 
 
@@ -428,7 +423,7 @@ st.markdown(
 
 
 # ============================================================
-# HEADER
+# REGISTRY HEADER
 # ============================================================
 
 st.markdown(
@@ -526,7 +521,7 @@ with st.sidebar:
 
 
 # ============================================================
-# HELPERS
+# HELPER FUNCTIONS
 # ============================================================
 
 def page_header(
@@ -550,7 +545,7 @@ def page_header(
 
 def kpi_card(
     label: str,
-    value: str,
+    value: str | int,
     description: str,
 ) -> None:
 
@@ -615,7 +610,7 @@ def render_overview() -> None:
 
 
     # --------------------------------------------------------
-    # KPIs
+    # KPI CARDS
     # --------------------------------------------------------
 
     col1, col2, col3, col4 = st.columns(4)
@@ -625,7 +620,7 @@ def render_overview() -> None:
 
         kpi_card(
             "Registered Population",
-            "0",
+            0,
             "Population records",
         )
 
@@ -634,7 +629,7 @@ def render_overview() -> None:
 
         kpi_card(
             "Civil Records",
-            "0",
+            0,
             "Birth, death and civil events",
         )
 
@@ -643,7 +638,7 @@ def render_overview() -> None:
 
         kpi_card(
             "Identity Records",
-            "0",
+            0,
             "National identity records",
         )
 
@@ -652,7 +647,7 @@ def render_overview() -> None:
 
         kpi_card(
             "Election Records",
-            "0",
+            0,
             "Electoral records",
         )
 
@@ -664,7 +659,7 @@ def render_overview() -> None:
 
 
     # --------------------------------------------------------
-    # SERVICES
+    # REGISTRY SERVICES
     # --------------------------------------------------------
 
     st.subheader("Registry Services")
@@ -771,7 +766,7 @@ def render_civil_registration() -> None:
 
 
 # ============================================================
-# IDENTITY
+# IDENTITY MANAGEMENT
 # ============================================================
 
 def render_identity() -> None:
@@ -823,7 +818,7 @@ def render_reports() -> None:
     )
 
     st.info(
-        "Reporting module is ready for database integration."
+        "Reports & Analytics module is ready for database integration."
     )
 
 
@@ -847,7 +842,7 @@ def render_administration() -> None:
 
 
 # ============================================================
-# ROUTER
+# APPLICATION ROUTER
 # ============================================================
 
 if st.session_state.active_page == "Overview":
@@ -902,4 +897,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True,
-)
+    )
