@@ -1,8 +1,6 @@
 """
 South Sudan National Registry
 Registry Module System
-
-Database-backed Registry modules.
 """
 
 from __future__ import annotations
@@ -11,207 +9,146 @@ from dataclasses import dataclass
 from typing import Callable
 
 
-# ============================================================
-# MODULE DEFINITION
-# ============================================================
-
 @dataclass
 class RegistryModule:
-
     key: str
-
     label: str
-
     description: str
-
     render: Callable | None = None
-
     available: bool = True
-
     error: str | None = None
 
 
 # ============================================================
-# MODULE LOADER
+# MODULE LOADING
 # ============================================================
 
-def _load_renderer(
-    module_name: str,
-    function_name: str = "render",
-):
-    """
-    Safely import a module renderer.
+def _load_population():
+    from modules.population import render
+    return render
 
-    A failed module does not prevent the rest of
-    the Registry from starting.
-    """
+
+def _load_civil_registration():
+    from modules.civil_registration import render
+    return render
+
+
+def _load_identity():
+    from modules.identity import render
+    return render
+
+
+def _load_elections():
+    from modules.elections import render
+    return render
+
+
+def _load_reports():
+    from modules.reports import render
+    return render
+
+
+def _load_administration():
+    from modules.administration import render
+    return render
+
+
+# ============================================================
+# REGISTRY
+# ============================================================
+
+MODULES: dict[str, RegistryModule] = {}
+
+
+def _register(
+    key: str,
+    label: str,
+    description: str,
+    loader: Callable,
+) -> None:
 
     try:
+        renderer = loader()
 
-        module = __import__(
-            f"modules.{module_name}",
-            fromlist=[function_name],
+        MODULES[key] = RegistryModule(
+            key=key,
+            label=label,
+            description=description,
+            render=renderer,
+            available=True,
         )
-
-        renderer = getattr(
-            module,
-            function_name,
-        )
-
-        if not callable(renderer):
-            raise TypeError(
-                f"{function_name} is not callable."
-            )
-
-        return renderer, None
 
     except Exception as exc:
 
-        return (
-            None,
-            f"{type(exc).__name__}: {exc}",
+        MODULES[key] = RegistryModule(
+            key=key,
+            label=label,
+            description=description,
+            render=None,
+            available=False,
+            error=str(exc),
         )
 
 
-# ============================================================
-# LOAD RENDERERS
-# ============================================================
-
-population_renderer, population_error = (
-    _load_renderer("population")
+_register(
+    "population",
+    "Population Registry",
+    (
+        "Manage national population records, "
+        "citizens, households and demographic information."
+    ),
+    _load_population,
 )
 
-civil_renderer, civil_error = (
-    _load_renderer("civil_registration")
+_register(
+    "civil_registration",
+    "Civil Registration",
+    (
+        "Register births, deaths, marriages, "
+        "divorces and other civil events."
+    ),
+    _load_civil_registration,
 )
 
-identity_renderer, identity_error = (
-    _load_renderer("identity")
+_register(
+    "identity",
+    "Identity Management",
+    (
+        "Manage national identity records, "
+        "passports and identity documents."
+    ),
+    _load_identity,
 )
 
-elections_renderer, elections_error = (
-    _load_renderer("elections")
+_register(
+    "elections",
+    "Elections",
+    (
+        "Manage voter registration, "
+        "constituencies and polling stations."
+    ),
+    _load_elections,
 )
 
-households_renderer, households_error = (
-    _load_renderer("households")
+_register(
+    "reports",
+    "Reports & Analytics",
+    (
+        "Generate operational, demographic, "
+        "civil registration and election reports."
+    ),
+    _load_reports,
 )
 
-documents_renderer, documents_error = (
-    _load_renderer("documents")
+_register(
+    "administration",
+    "Administration",
+    (
+        "Manage system administration, "
+        "audit monitoring and configuration."
+    ),
+    _load_administration,
 )
-
-reports_renderer, reports_error = (
-    _load_renderer("reports")
-)
-
-administration_renderer, administration_error = (
-    _load_renderer("administration")
-)
-
-
-# ============================================================
-# MODULE REGISTRY
-# ============================================================
-
-MODULES: dict[str, RegistryModule] = {
-
-    "population": RegistryModule(
-        key="population",
-        label="Population Registry",
-        description=(
-            "Manage national population records, "
-            "households, persons and demographic information."
-        ),
-        render=population_renderer,
-        available=population_renderer is not None,
-        error=population_error,
-    ),
-
-    "households": RegistryModule(
-        key="households",
-        label="Households",
-        description=(
-            "Manage household registration, household "
-            "members and household heads."
-        ),
-        render=households_renderer,
-        available=households_renderer is not None,
-        error=households_error,
-    ),
-
-    "civil_registration": RegistryModule(
-        key="civil_registration",
-        label="Civil Registration",
-        description=(
-            "Register births, deaths, marriages and "
-            "other civil events."
-        ),
-        render=civil_renderer,
-        available=civil_renderer is not None,
-        error=civil_error,
-    ),
-
-    "identity": RegistryModule(
-        key="identity",
-        label="Identity Management",
-        description=(
-            "Manage national identity information and "
-            "identity verification."
-        ),
-        render=identity_renderer,
-        available=identity_renderer is not None,
-        error=identity_error,
-    ),
-
-    "elections": RegistryModule(
-        key="elections",
-        label="Elections",
-        description=(
-            "Manage voter registration, constituencies "
-            "and polling station information."
-        ),
-        render=elections_renderer,
-        available=elections_renderer is not None,
-        error=elections_error,
-    ),
-
-    "documents": RegistryModule(
-        key="documents",
-        label="Documents",
-        description=(
-            "Register and manage Registry documents, "
-            "certificates and official records."
-        ),
-        render=documents_renderer,
-        available=documents_renderer is not None,
-        error=documents_error,
-    ),
-
-    "reports": RegistryModule(
-        key="reports",
-        label="Reports & Analytics",
-        description=(
-            "Generate operational reports, statistical "
-            "summaries and Registry analytics."
-        ),
-        render=reports_renderer,
-        available=reports_renderer is not None,
-        error=reports_error,
-    ),
-
-    "administration": RegistryModule(
-        key="administration",
-        label="Administration",
-        description=(
-            "Manage users, roles, permissions and "
-            "system administration."
-        ),
-        render=administration_renderer,
-        available=administration_renderer is not None,
-        error=administration_error,
-    ),
-}
 
 
 # ============================================================
@@ -236,9 +173,7 @@ def get_available_modules() -> list[RegistryModule]:
 
 def get_all_modules() -> list[RegistryModule]:
 
-    return list(
-        MODULES.values()
-    )
+    return list(MODULES.values())
 
 
 def render_module(
@@ -247,52 +182,39 @@ def render_module(
 
     import streamlit as st
 
-    if isinstance(
-        module_or_key,
-        str,
-    ):
-
-        module = get_module(
-            module_or_key
-        )
-
+    if isinstance(module_or_key, str):
+        module = get_module(module_or_key)
     else:
-
         module = module_or_key
 
     if module is None:
-
-        st.error(
-            "Registry module not found."
-        )
-
+        st.error("Registry module not found.")
         return
 
     if not module.available:
-
         st.error(
-            "This Registry module is currently unavailable."
+            f"{module.label} is currently unavailable."
         )
 
         if module.error:
-
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.code(
-                    module.error
-                )
+            with st.expander("Technical Details"):
+                st.code(module.error)
 
         return
 
     if module.render is None:
-
         st.info(
-            "This Registry module has not yet "
-            "been implemented."
+            "This Registry module has not yet been implemented."
         )
-
         return
 
-    module.render()
+    try:
+        module.render()
+
+    except Exception as exc:
+        st.error(
+            f"Unable to render {module.label}."
+        )
+
+        with st.expander("Technical Details"):
+            st.exception(exc)
