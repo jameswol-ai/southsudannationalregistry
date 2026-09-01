@@ -25,22 +25,40 @@ Application entry point:
 
 from __future__ import annotations
 
+import io
 import logging
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 
 # ============================================================
-# PAGE CONFIGURATION
-# IMPORTANT:
-# st.set_page_config() must run before Streamlit UI work.
-#
-# IMPORTANT:
-# Do NOT use the South Sudan emblem PNG here.
-# A corrupt/invalid image can cause Streamlit/Pillow to fail
-# before the application is able to render.
+# PATHS
 # ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+
+ASSETS_DIR = BASE_DIR / "assets"
+
+EMBLEM_PATH = (
+    ASSETS_DIR / "south_sudan_emblem.png"
+)
+
+
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
+
+# IMPORTANT:
+# Do not pass EMBLEM_PATH directly to page_icon.
+#
+# Streamlit internally opens image files with Pillow.
+# If the repository asset is corrupt, the entire application
+# can fail before the UI renders.
+#
+# Use the emoji during startup. The real emblem is loaded
+# safely later after validation.
 
 st.set_page_config(
     page_title="South Sudan National Registry",
@@ -60,6 +78,88 @@ logger = logging.getLogger(
 
 
 # ============================================================
+# SAFE EMBLEM LOADING
+# ============================================================
+
+def load_valid_emblem() -> Any | None:
+    """
+    Safely load the South Sudan National Emblem.
+
+    Returns:
+        PIL.Image.Image when the PNG is valid.
+        None when the file is missing or invalid.
+
+    This prevents a corrupt PNG from crashing Streamlit.
+    """
+
+    if not EMBLEM_PATH.exists():
+
+        logger.warning(
+            "Registry emblem not found: %s",
+            EMBLEM_PATH,
+        )
+
+        return None
+
+
+    try:
+
+        from PIL import Image
+
+        # Read the complete file into memory first.
+        image_bytes = EMBLEM_PATH.read_bytes()
+
+        if not image_bytes:
+
+            logger.warning(
+                "Registry emblem is empty: %s",
+                EMBLEM_PATH,
+            )
+
+            return None
+
+
+        # Open the image.
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        )
+
+
+        # Verify the image contents.
+        image.verify()
+
+
+        # Re-open after verify().
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        )
+
+
+        # Convert to a Streamlit-safe mode.
+        if image.mode not in (
+            "RGB",
+            "RGBA",
+        ):
+
+            image = image.convert(
+                "RGBA"
+            )
+
+
+        return image
+
+
+    except Exception:
+
+        logger.exception(
+            "Invalid Registry emblem: %s",
+            EMBLEM_PATH,
+        )
+
+        return None
+
+
+# ============================================================
 # DATABASE
 # ============================================================
 
@@ -70,9 +170,6 @@ from database.database import init_db
 def initialize_database() -> bool:
     """
     Initialize the registry database once per Streamlit process.
-
-    SQLite is used automatically when DATABASE_URL is not supplied.
-    PostgreSQL can be supplied through DATABASE_URL.
     """
 
     init_db()
@@ -92,31 +189,36 @@ from modules.registry import (
 
 
 # ============================================================
-# REGISTRY COMPATIBILITY
+# MODULE HELPERS
 # ============================================================
 
 def load_registry_modules() -> list[Any]:
     """
-    Return available registry modules in a predictable list format.
-
-    The function is deliberately defensive because registry
-    implementations may return different iterable types.
+    Return available registry modules.
     """
 
     try:
+
         modules = get_available_modules()
 
         if modules is None:
             return []
 
-        if isinstance(modules, dict):
-            return list(modules.values())
+        if isinstance(
+            modules,
+            dict,
+        ):
+
+            return list(
+                modules.values()
+            )
 
         return list(modules)
 
     except Exception:
+
         logger.exception(
-            "Unable to load available registry modules."
+            "Unable to load registry modules."
         )
 
         return []
@@ -124,22 +226,26 @@ def load_registry_modules() -> list[Any]:
 
 def load_all_registry_modules() -> list[Any]:
     """
-    Return all configured registry modules where possible.
-
-    This allows the Overview dashboard to display module
-    availability without preventing the rest of the application
-    from starting.
+    Return all configured modules where possible.
     """
 
     try:
+
         from modules.registry import MODULES
 
-        if isinstance(MODULES, dict):
-            return list(MODULES.values())
+        if isinstance(
+            MODULES,
+            dict,
+        ):
+
+            return list(
+                MODULES.values()
+            )
 
     except Exception:
+
         logger.debug(
-            "MODULES registry was not available.",
+            "MODULES registry unavailable.",
             exc_info=True,
         )
 
@@ -151,10 +257,14 @@ def load_all_registry_modules() -> list[Any]:
 # ============================================================
 
 if "active_module" not in st.session_state:
-    st.session_state.active_module = "overview"
+
+    st.session_state.active_module = (
+        "overview"
+    )
 
 
 if "dark_mode" not in st.session_state:
+
     st.session_state.dark_mode = True
 
 
@@ -163,6 +273,7 @@ if "dark_mode" not in st.session_state:
 # ============================================================
 
 try:
+
     initialize_database()
 
 except Exception as exc:
@@ -175,6 +286,7 @@ except Exception as exc:
     with st.expander(
         "Technical details"
     ):
+
         st.exception(exc)
 
     st.stop()
@@ -185,9 +297,6 @@ except Exception as exc:
 # ============================================================
 
 def get_theme() -> dict[str, str]:
-    """
-    Return the current application theme.
-    """
 
     if st.session_state.dark_mode:
 
@@ -231,19 +340,12 @@ def get_theme() -> dict[str, str]:
 # ============================================================
 
 def inject_css() -> None:
-    """
-    Inject global Streamlit styling.
-    """
 
     theme = get_theme()
 
     st.markdown(
         f"""
         <style>
-
-        /* ====================================================
-           GLOBAL
-           ==================================================== */
 
         .stApp {{
             background: {theme["background"]};
@@ -252,6 +354,7 @@ def inject_css() -> None:
 
         .block-container {{
             max-width: 1500px;
+
             padding-top: 0.8rem;
             padding-bottom: 7rem;
         }}
@@ -266,8 +369,7 @@ def inject_css() -> None:
         }}
 
         p,
-        label,
-        span {{
+        label {{
             color: {theme["text"]};
         }}
 
@@ -278,29 +380,88 @@ def inject_css() -> None:
 
         .registry-header {{
             width: 100%;
-            text-align: center;
 
-            padding: 18px 10px 14px;
+            background: {theme["surface"]};
 
-            margin-bottom: 10px;
+            border: 1px solid {theme["border"]};
+
+            border-radius: 16px;
+
+            padding: 18px;
+
+            margin-bottom: 18px;
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 18px;
+
+            box-shadow:
+                0 3px 12px rgba(0,0,0,0.08);
         }}
+
+
+        .registry-emblem {{
+            width: 78px;
+            height: 78px;
+
+            min-width: 78px;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            border-radius: 50%;
+
+            overflow: hidden;
+
+            background: {theme["accent"]};
+
+            border: 3px solid #FBBF24;
+        }}
+
+
+        .registry-emblem img {{
+            width: 100%;
+            height: 100%;
+
+            object-fit: contain;
+        }}
+
+
+        .registry-emblem-fallback {{
+            color: white;
+
+            font-size: 20px;
+
+            font-weight: 900;
+
+            letter-spacing: 1px;
+        }}
+
 
         .registry-brand {{
+            flex: 1;
+
             display: flex;
+
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
         }}
+
 
         .registry-title {{
-            font-size: 28px;
-            font-weight: 800;
-            line-height: 1.2;
-
             color: {theme["text"]};
 
-            letter-spacing: -0.02em;
+            font-size: 27px;
+
+            font-weight: 800;
+
+            line-height: 1.2;
         }}
+
 
         .registry-subtitle {{
             color: {theme["muted"]};
@@ -309,55 +470,18 @@ def inject_css() -> None:
 
             line-height: 1.5;
 
-            margin-top: 7px;
+            margin-top: 6px;
         }}
 
 
-        /* ====================================================
-           CSS EMBLEM FALLBACK
-           ==================================================== */
+        .registry-status {{
+            text-align: right;
 
-        .registry-emblem {{
-            width: 72px;
-            height: 72px;
-
-            margin: 0 auto 12px;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            border-radius: 50%;
-
-            background: {theme["accent"]};
-
-            border: 4px solid #FBBF24;
-
-            color: #FFFFFF;
-
-            font-size: 20px;
-            font-weight: 900;
-
-            letter-spacing: 1px;
-
-            box-shadow:
-                0 5px 18px rgba(0, 0, 0, 0.18);
+            min-width: 130px;
         }}
 
 
-        /* ====================================================
-           SYSTEM STATUS
-           ==================================================== */
-
-        .registry-system-status {{
-            display: inline-flex;
-
-            align-items: center;
-
-            gap: 7px;
-
-            margin-top: 10px;
-
+        .status-online {{
             color: {theme["success"]};
 
             font-size: 12px;
@@ -365,7 +489,10 @@ def inject_css() -> None:
             font-weight: 700;
         }}
 
+
         .status-dot {{
+            display: inline-block;
+
             width: 8px;
             height: 8px;
 
@@ -373,68 +500,21 @@ def inject_css() -> None:
 
             background: {theme["success"]};
 
-            display: inline-block;
+            margin-right: 5px;
         }}
 
 
-        /* ====================================================
-           OVERVIEW
-           ==================================================== */
-
-        .overview-card {{
-            background: {theme["surface"]};
-
-            border: 1px solid {theme["border"]};
-
-            border-radius: 16px;
-
-            padding: 22px;
-
-            margin-bottom: 18px;
-
-            box-shadow:
-                0 2px 8px rgba(0, 0, 0, 0.05);
-        }}
-
-        .registry-kicker {{
-            color: {theme["accent"]};
-
-            font-size: 12px;
-
-            font-weight: 800;
-
-            text-transform: uppercase;
-
-            letter-spacing: 0.08em;
-
-            margin-bottom: 6px;
-        }}
-
-        .registry-heading {{
-            color: {theme["text"]};
-
-            font-size: 22px;
-
-            font-weight: 800;
-
-            line-height: 1.3;
-
-            margin-bottom: 7px;
-        }}
-
-        .registry-description {{
+        .registry-version {{
             color: {theme["muted"]};
 
-            font-size: 14px;
+            font-size: 11px;
 
-            line-height: 1.6;
-
-            max-width: 950px;
+            margin-top: 5px;
         }}
 
 
         /* ====================================================
-           KPI CARDS
+           KPI
            ==================================================== */
 
         .kpi-card {{
@@ -449,12 +529,8 @@ def inject_css() -> None:
             min-height: 125px;
 
             margin-bottom: 14px;
-
-            box-shadow:
-                0 2px 8px rgba(0, 0, 0, 0.04);
-
-            box-sizing: border-box;
         }}
+
 
         .kpi-label {{
             color: {theme["muted"]};
@@ -462,9 +538,8 @@ def inject_css() -> None:
             font-size: 12px;
 
             font-weight: 700;
-
-            margin-bottom: 8px;
         }}
+
 
         .kpi-value {{
             color: {theme["text"]};
@@ -473,22 +548,21 @@ def inject_css() -> None:
 
             font-weight: 800;
 
-            line-height: 1;
+            margin-top: 7px;
         }}
+
 
         .kpi-description {{
             color: {theme["muted"]};
 
             font-size: 11px;
 
-            margin-top: 9px;
-
-            line-height: 1.4;
+            margin-top: 7px;
         }}
 
 
         /* ====================================================
-           MODULE CARDS
+           MODULE
            ==================================================== */
 
         .module-card {{
@@ -500,15 +574,11 @@ def inject_css() -> None:
 
             padding: 18px;
 
-            margin-bottom: 14px;
-
             min-height: 130px;
 
-            box-sizing: border-box;
-
-            box-shadow:
-                0 2px 8px rgba(0, 0, 0, 0.04);
+            margin-bottom: 14px;
         }}
+
 
         .module-name {{
             color: {theme["text"]};
@@ -516,9 +586,8 @@ def inject_css() -> None:
             font-size: 16px;
 
             font-weight: 750;
-
-            line-height: 1.3;
         }}
+
 
         .module-description {{
             color: {theme["muted"]};
@@ -532,95 +601,6 @@ def inject_css() -> None:
 
 
         /* ====================================================
-           MODULE STATUS
-           ==================================================== */
-
-        .status-operational {{
-            color: {theme["success"]};
-
-            font-weight: 700;
-        }}
-
-        .status-unavailable {{
-            color: {theme["danger"]};
-
-            font-weight: 700;
-        }}
-
-
-        /* ====================================================
-           STREAMLIT METRICS
-           ==================================================== */
-
-        div[data-testid="stMetric"] {{
-            background: {theme["surface"]};
-
-            border: 1px solid {theme["border"]};
-
-            border-radius: 14px;
-
-            padding: 14px;
-        }}
-
-        div[data-testid="stMetricLabel"] {{
-            color: {theme["muted"]} !important;
-        }}
-
-        div[data-testid="stMetricValue"] {{
-            color: {theme["text"]} !important;
-        }}
-
-
-        /* ====================================================
-           BUTTONS
-           ==================================================== */
-
-        .stButton > button {{
-            border-radius: 10px;
-
-            min-height: 40px;
-
-            font-weight: 600;
-
-            border: 1px solid {theme["border"]};
-
-            background: {theme["surface"]};
-
-            color: {theme["text"]};
-        }}
-
-        .stButton > button:hover {{
-            border-color: {theme["accent"]};
-
-            color: {theme["accent"]};
-        }}
-
-
-        /* ====================================================
-           SELECTBOX
-           ==================================================== */
-
-        div[data-baseweb="select"] > div {{
-            border-radius: 10px;
-
-            border-color: {theme["border"]};
-
-            background: {theme["surface"]};
-        }}
-
-
-        /* ====================================================
-           SIDEBAR
-           ==================================================== */
-
-        section[data-testid="stSidebar"] {{
-            background: {theme["surface"]};
-
-            border-right: 1px solid {theme["border"]};
-        }}
-
-
-        /* ====================================================
            FOOTER
            ==================================================== */
 
@@ -630,11 +610,13 @@ def inject_css() -> None:
             font-size: 11px;
 
             line-height: 1.5;
+
+            text-align: center;
         }}
 
 
         /* ====================================================
-           STREAMLIT CHROME
+           STREAMLIT
            ==================================================== */
 
         #MainMenu {{
@@ -656,25 +638,22 @@ def inject_css() -> None:
 
         @media (max-width: 768px) {{
 
+            .registry-header {{
+                flex-direction: column;
+
+                text-align: center;
+            }}
+
+            .registry-brand {{
+                align-items: center;
+            }}
+
+            .registry-status {{
+                text-align: center;
+            }}
+
             .registry-title {{
                 font-size: 21px;
-            }}
-
-            .registry-subtitle {{
-                font-size: 11px;
-            }}
-
-            .registry-emblem {{
-                width: 60px;
-                height: 60px;
-
-                font-size: 17px;
-            }}
-
-            .block-container {{
-                padding-left: 1rem;
-                padding-right: 1rem;
-                padding-bottom: 6rem;
             }}
 
         }}
@@ -689,39 +668,135 @@ inject_css()
 
 
 # ============================================================
-# REGISTRY HEADER
+# EMBLEM
 # ============================================================
 
-st.markdown(
-    """
-    <div class="registry-header">
+emblem = load_valid_emblem()
 
-        <div class="registry-emblem">
-            SS
+
+# ============================================================
+# HEADER
+# ============================================================
+
+if emblem is not None:
+
+    # Streamlit receives an already validated PIL image.
+    # The corrupt file can therefore never reach st.image().
+
+    header_col1, header_col2, header_col3 = st.columns(
+        [1, 5, 2]
+    )
+
+
+    with header_col1:
+
+        st.image(
+            emblem,
+            width=78,
+        )
+
+
+    with header_col2:
+
+        st.markdown(
+            """
+            <div class="registry-brand">
+
+                <div class="registry-title">
+                    South Sudan National Registry
+                </div>
+
+                <div class="registry-subtitle">
+                    National Population • Civil Registration •
+                    Identity • Elections
+                </div>
+
+                <div class="status-online">
+                    <span class="status-dot"></span>
+                    System Online
+                </div>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+    with header_col3:
+
+        st.markdown(
+            """
+            <div class="registry-status">
+
+                <div class="registry-version">
+                    Registry Platform
+                </div>
+
+                <div class="registry-version">
+                    Version 1.0.0
+                </div>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+else:
+
+    # Safe fallback if the PNG is missing or corrupt.
+
+    st.markdown(
+        """
+        <div class="registry-header">
+
+            <div class="registry-emblem">
+
+                <div class="registry-emblem-fallback">
+                    SS
+                </div>
+
+            </div>
+
+            <div class="registry-brand">
+
+                <div class="registry-title">
+                    South Sudan National Registry
+                </div>
+
+                <div class="registry-subtitle">
+                    National Population • Civil Registration •
+                    Identity • Elections
+                </div>
+
+                <div class="status-online">
+                    <span class="status-dot"></span>
+                    System Online
+                </div>
+
+            </div>
+
+            <div class="registry-status">
+
+                <div class="registry-version">
+                    Registry Platform
+                </div>
+
+                <div class="registry-version">
+                    Version 1.0.0
+                </div>
+
+            </div>
+
         </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        <div class="registry-brand">
 
-            <div class="registry-title">
-                South Sudan National Registry
-            </div>
-
-            <div class="registry-subtitle">
-                National Population • Civil Registration •
-                Identity • Elections
-            </div>
-
-            <div class="registry-system-status">
-                <span class="status-dot"></span>
-                System Online
-            </div>
-
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+    st.warning(
+        "Registry emblem asset could not be loaded. "
+        "The application is running using the built-in fallback."
+    )
 
 
 # ============================================================
@@ -735,16 +810,12 @@ control_col1, control_col2, control_col3 = st.columns(
 
 with control_col2:
 
-    theme_button = (
+    if st.button(
         "Light"
         if st.session_state.dark_mode
-        else "Dark"
-    )
-
-    if st.button(
-        theme_button,
-        key="theme_toggle",
+        else "Dark",
         use_container_width=True,
+        key="theme_toggle",
     ):
 
         st.session_state.dark_mode = (
@@ -758,8 +829,8 @@ with control_col3:
 
     if st.button(
         "Refresh",
-        key="refresh_application",
         use_container_width=True,
+        key="refresh",
     ):
 
         st.rerun()
@@ -775,217 +846,10 @@ available_modules = load_registry_modules()
 
 
 # ============================================================
-# HELPER FUNCTIONS
-# ============================================================
-
-def get_module_key(
-    module: Any,
-) -> str | None:
-    """
-    Safely obtain a module key.
-    """
-
-    key = getattr(
-        module,
-        "key",
-        None,
-    )
-
-    if key is None:
-        return None
-
-    return str(key)
-
-
-def get_module_label(
-    module: Any,
-) -> str:
-    """
-    Safely obtain a module display label.
-    """
-
-    label = getattr(
-        module,
-        "label",
-        None,
-    )
-
-    if label:
-
-        return str(label)
-
-    key = get_module_key(module)
-
-    if key:
-
-        return key.replace(
-            "_",
-            " ",
-        ).title()
-
-    return "Registry Module"
-
-
-def get_module_description(
-    module: Any,
-) -> str:
-    """
-    Safely obtain a module description.
-    """
-
-    description = getattr(
-        module,
-        "description",
-        "",
-    )
-
-    return str(
-        description or ""
-    )
-
-
-def module_is_available(
-    module: Any,
-) -> bool:
-    """
-    Determine whether a registry module is operational.
-
-    If the registry object does not expose an explicit
-    availability attribute, assume it is operational.
-    """
-
-    available = getattr(
-        module,
-        "available",
-        None,
-    )
-
-    if available is None:
-
-        return True
-
-    return bool(
-        available
-    )
-
-
-def get_module_error(
-    module: Any,
-) -> str:
-    """
-    Return a human-readable module error.
-    """
-
-    error = getattr(
-        module,
-        "error",
-        None,
-    )
-
-    if error:
-
-        return str(error)
-
-    return "Unknown module error."
-
-
-def kpi_card(
-    label: str,
-    value: str | int,
-    description: str,
-) -> None:
-    """
-    Render a KPI card.
-
-    All HTML is intentionally contained inside st.markdown().
-    """
-
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-
-            <div class="kpi-label">
-                {label}
-            </div>
-
-            <div class="kpi-value">
-                {value}
-            </div>
-
-            <div class="kpi-description">
-                {description}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def module_card(
-    title: str,
-    description: str,
-) -> None:
-    """
-    Render a Registry module card.
-    """
-
-    st.markdown(
-        f"""
-        <div class="module-card">
-
-            <div class="module-name">
-                {title}
-            </div>
-
-            <div class="module-description">
-                {description}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def page_header(
-    title: str,
-    description: str,
-) -> None:
-    """
-    Render a standard module page header.
-    """
-
-    st.markdown(
-        f"""
-        <div class="overview-card">
-
-            <div class="registry-kicker">
-                South Sudan National Registry
-            </div>
-
-            <div class="registry-heading">
-                {title}
-            </div>
-
-            <div class="registry-description">
-                {description}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# ============================================================
 # OVERVIEW
 # ============================================================
 
 def render_overview() -> None:
-    """
-    Render the Registry Overview dashboard.
-    """
 
     st.markdown(
         """
@@ -1056,65 +920,7 @@ def render_overview() -> None:
 
 
     # --------------------------------------------------------
-    # SYSTEM STATUS
-    # --------------------------------------------------------
-
-    st.divider()
-
-    st.subheader(
-        "System Status"
-    )
-
-
-    total_modules = len(
-        all_modules
-    )
-
-
-    operational_modules = sum(
-        1
-        for module in all_modules
-        if module_is_available(module)
-    )
-
-
-    unavailable_modules = max(
-        total_modules - operational_modules,
-        0,
-    )
-
-
-    status_col1, status_col2, status_col3 = st.columns(
-        3
-    )
-
-
-    with status_col1:
-
-        st.metric(
-            "Registry Modules",
-            total_modules,
-        )
-
-
-    with status_col2:
-
-        st.metric(
-            "Operational",
-            operational_modules,
-        )
-
-
-    with status_col3:
-
-        st.metric(
-            "Attention Required",
-            unavailable_modules,
-        )
-
-
-    # --------------------------------------------------------
-    # SERVICES
+    # MODULES
     # --------------------------------------------------------
 
     st.divider()
@@ -1124,7 +930,7 @@ def render_overview() -> None:
     )
 
 
-    service_modules = [
+    services = [
         (
             "Population Registry",
             (
@@ -1172,24 +978,15 @@ def render_overview() -> None:
     ]
 
 
-    col1, col2, col3 = st.columns(3)
+    columns = st.columns(3)
 
 
     for index, (
         title,
         description,
-    ) in enumerate(service_modules):
+    ) in enumerate(services):
 
-        target_column = (
-            col1
-            if index % 3 == 0
-            else col2
-            if index % 3 == 1
-            else col3
-        )
-
-
-        with target_column:
+        with columns[index % 3]:
 
             module_card(
                 title,
@@ -1198,7 +995,7 @@ def render_overview() -> None:
 
 
     # --------------------------------------------------------
-    # CONFIGURED MODULES
+    # MODULE STATUS
     # --------------------------------------------------------
 
     if all_modules:
@@ -1261,43 +1058,161 @@ def render_overview() -> None:
                     )
 
 
-            if not available:
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
 
-                with st.expander(
-                    f"Technical details — {name}"
-                ):
+def get_module_key(
+    module: Any,
+) -> str | None:
 
-                    st.code(
-                        get_module_error(module)
-                    )
+    key = getattr(
+        module,
+        "key",
+        None,
+    )
+
+    if key is None:
+
+        return None
+
+    return str(key)
 
 
-    # --------------------------------------------------------
-    # ARCHITECTURE
-    # --------------------------------------------------------
+def get_module_label(
+    module: Any,
+) -> str:
 
-    st.divider()
+    label = getattr(
+        module,
+        "label",
+        None,
+    )
 
-    st.subheader(
-        "Platform Architecture"
+    if label:
+
+        return str(label)
+
+    key = get_module_key(
+        module
+    )
+
+    if key:
+
+        return key.replace(
+            "_",
+            " ",
+        ).title()
+
+    return "Registry Module"
+
+
+def get_module_description(
+    module: Any,
+) -> str:
+
+    return str(
+        getattr(
+            module,
+            "description",
+            "",
+        )
+        or ""
     )
 
 
-    st.code(
-        """
-Next.js AI Studio
-        |
-   Registry API
-        |
-   Service Layer
-        |
-    SQLAlchemy
-        |
- PostgreSQL / SQLite
-        |
-Streamlit AI Studio
-        """.strip(),
-        language="text",
+def module_is_available(
+    module: Any,
+) -> bool:
+
+    value = getattr(
+        module,
+        "available",
+        None,
+    )
+
+    if value is None:
+
+        return True
+
+    return bool(value)
+
+
+def kpi_card(
+    label: str,
+    value: str | int,
+    description: str,
+) -> None:
+
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+
+            <div class="kpi-label">
+                {label}
+            </div>
+
+            <div class="kpi-value">
+                {value}
+            </div>
+
+            <div class="kpi-description">
+                {description}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def module_card(
+    title: str,
+    description: str,
+) -> None:
+
+    st.markdown(
+        f"""
+        <div class="module-card">
+
+            <div class="module-name">
+                {title}
+            </div>
+
+            <div class="module-description">
+                {description}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def page_header(
+    title: str,
+    description: str,
+) -> None:
+
+    st.markdown(
+        f"""
+        <div class="overview-card">
+
+            <div class="registry-kicker">
+                South Sudan National Registry
+            </div>
+
+            <div class="registry-heading">
+                {title}
+            </div>
+
+            <div class="registry-description">
+                {description}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -1344,10 +1259,10 @@ for module in available_modules:
 
 
 # ============================================================
-# VALID NAVIGATION KEYS
+# VALIDATE ACTIVE MODULE
 # ============================================================
 
-valid_navigation_keys = {
+valid_keys = {
     key
     for key, _
     in navigation_items
@@ -1356,7 +1271,7 @@ valid_navigation_keys = {
 
 if (
     st.session_state.active_module
-    not in valid_navigation_keys
+    not in valid_keys
 ):
 
     st.session_state.active_module = (
@@ -1365,12 +1280,10 @@ if (
 
 
 # ============================================================
-# MODULE NAVIGATION
+# NAVIGATION BAR
 # ============================================================
 
-st.divider()
-
-navigation_labels = [
+labels = [
     label
     for _, label
     in navigation_items
@@ -1391,13 +1304,12 @@ current_label = next(
 
 selected_label = st.radio(
     "Registry Navigation",
-    navigation_labels,
+    labels,
     index=(
-        navigation_labels.index(
+        labels.index(
             current_label
         )
-        if current_label
-        in navigation_labels
+        if current_label in labels
         else 0
     ),
     horizontal=True,
@@ -1430,7 +1342,7 @@ if (
 
 
 # ============================================================
-# ACTIVE PAGE
+# ACTIVE MODULE
 # ============================================================
 
 if (
@@ -1454,7 +1366,6 @@ else:
             "could not be found."
         )
 
-
     else:
 
         module_name = get_module_label(
@@ -1469,9 +1380,7 @@ else:
         page_header(
             module_name,
             module_description
-            or (
-                "Registry management module."
-            ),
+            or "Registry management module.",
         )
 
 
@@ -1483,17 +1392,22 @@ else:
                 "This Registry module is currently unavailable."
             )
 
+            error = getattr(
+                active_module,
+                "error",
+                None,
+            )
 
             with st.expander(
                 "Technical details"
             ):
 
                 st.code(
-                    get_module_error(
-                        active_module
+                    str(
+                        error
+                        or "Unknown module error."
                     )
                 )
-
 
         else:
 
@@ -1505,9 +1419,8 @@ else:
 
             except TypeError:
 
-                # Compatibility fallback for registry
-                # implementations whose render_module()
-                # expects the module object instead of its key.
+                # Compatibility with registries that expect
+                # the module object rather than the module key.
 
                 try:
 
@@ -1518,8 +1431,7 @@ else:
                 except Exception as exc:
 
                     logger.exception(
-                        "Runtime error in module '%s'.",
-                        st.session_state.active_module,
+                        "Module rendering failed."
                     )
 
                     st.error(
@@ -1536,8 +1448,7 @@ else:
             except Exception as exc:
 
                 logger.exception(
-                    "Runtime error in module '%s'.",
-                    st.session_state.active_module,
+                    "Module rendering failed."
                 )
 
                 st.error(
@@ -1558,39 +1469,17 @@ else:
 
 st.divider()
 
+st.markdown(
+    """
+    <div class="registry-footer">
 
-footer_col1, footer_col2 = st.columns(
-    2
-)
+        South Sudan National Registry
+        <br>
 
+        National Population • Civil Registration •
+        Identity • Elections
 
-with footer_col1:
-
-    st.markdown(
-        """
-        <div class="registry-footer">
-
-            South Sudan National Registry
-            <br>
-
-            Streamlit AI Studio
-
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-with footer_col2:
-
-    st.markdown(
-        """
-        <div class="registry-footer">
-
-            National Population • Civil Registration •
-            Identity • Elections
-
-        </div>
-        """,
-        unsafe_allow_html=True,
-)
+    </div>
+    """,
+    unsafe_allow_html=True,
+        )
