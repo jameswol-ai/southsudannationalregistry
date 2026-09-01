@@ -218,3 +218,36 @@ lib/
 ├── registry-api.ts
 ├── types.ts
 └── config.ts
+
+app/
+├── globals.css
+├── layout.tsx
+└── page.tsx
+
+components/
+├── AdministrativeHierarchyView.tsx
+├── CensusCertificateModal.tsx
+├── CensusRegistryTable.tsx
+├── DemographicAnalytics.tsx
+├── ElectionDayLiveView.tsx
+├── ElectoralRollView.tsx
+├── EnumerationForm.tsx
+├── ExportImportModal.tsx
+├── FieldQuickMode.tsx
+├── HouseholdUnitView.tsx
+├── Navbar.tsx
+├── PollingStationsView.tsx
+└── VoterCardModal.tsx
+
+database/
+├── database.py
+├── models.py
+└── seed.py
+
+lib/
+├── administrativeData.ts
+├── electionData.ts
+├── initialData.ts
+├── storage.ts
+├── types.ts
+└── utils.ts
