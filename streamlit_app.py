@@ -65,7 +65,9 @@ logger = logging.getLogger(
 )
 
 if not logger.handlers:
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO
+    )
 
 
 # ============================================================
@@ -126,8 +128,13 @@ def load_emblem() -> Any | None:
 
         image.load()
 
-        if image.mode not in ("RGB", "RGBA"):
-            image = image.convert("RGBA")
+        if image.mode not in (
+            "RGB",
+            "RGBA",
+        ):
+            image = image.convert(
+                "RGBA"
+            )
 
         return image
 
@@ -137,6 +144,7 @@ def load_emblem() -> Any | None:
             EMBLEM_PATH,
             exc,
         )
+
         return None
 
 
@@ -145,6 +153,7 @@ def load_emblem() -> Any | None:
 # ============================================================
 
 try:
+
     from database.database import (
         SessionLocal,
         init_db,
@@ -153,8 +162,10 @@ try:
     database_import_error = None
 
 except Exception as exc:
+
     SessionLocal = None
     init_db = None
+
     database_import_error = (
         f"{type(exc).__name__}: {exc}"
     )
@@ -167,13 +178,16 @@ def initialize_database() -> tuple[
 ]:
 
     if init_db is None:
+
         return (
             False,
             database_import_error
-            or "Database initialization is unavailable.",
+            or
+            "Database initialization is unavailable.",
         )
 
     try:
+
         init_db()
 
         return (
@@ -182,6 +196,7 @@ def initialize_database() -> tuple[
         )
 
     except Exception as exc:
+
         logger.exception(
             "Database initialization failed."
         )
@@ -197,8 +212,13 @@ def initialize_database() -> tuple[
     database_error,
 ) = initialize_database()
 
-st.session_state.database_connected = database_connected
-st.session_state.database_error = database_error
+st.session_state.database_connected = (
+    database_connected
+)
+
+st.session_state.database_error = (
+    database_error
+)
 
 
 # ============================================================
@@ -206,6 +226,7 @@ st.session_state.database_error = database_error
 # ============================================================
 
 try:
+
     from models import (
         AuditLog,
         Citizen,
@@ -215,9 +236,12 @@ try:
     models_error = None
 
 except Exception as exc:
+
     Citizen = None
     AuditLog = None
+
     models_available = False
+
     models_error = (
         f"{type(exc).__name__}: {exc}"
     )
@@ -233,9 +257,14 @@ except Exception as exc:
 # ============================================================
 
 try:
+
     from modules.registry import (
+        get_all_modules,
         get_available_modules,
         get_module,
+        get_module_errors,
+        get_registry_status,
+        module_exists,
         render_module,
     )
 
@@ -244,8 +273,12 @@ try:
 
 except Exception as exc:
 
+    get_all_modules = None
     get_available_modules = None
     get_module = None
+    get_module_errors = None
+    get_registry_status = None
+    module_exists = None
     render_module = None
 
     registry_available = False
@@ -265,6 +298,9 @@ except Exception as exc:
 # ============================================================
 
 def load_available_modules() -> list[Any]:
+    """
+    Return successfully loaded Registry modules.
+    """
 
     if not registry_available:
         return []
@@ -273,6 +309,7 @@ def load_available_modules() -> list[Any]:
         return []
 
     try:
+
         modules = get_available_modules()
 
         if modules is None:
@@ -281,72 +318,118 @@ def load_available_modules() -> list[Any]:
         return list(modules)
 
     except Exception:
+
         logger.exception(
             "Unable to load available modules."
         )
+
         return []
 
 
 def load_all_modules() -> list[Any]:
+    """
+    Return all Registry modules.
+    """
+
+    if not registry_available:
+        return []
+
+    if get_all_modules is None:
+        return []
 
     try:
-        from modules.registry import MODULES
 
-        if isinstance(MODULES, dict):
-            return list(MODULES.values())
+        modules = get_all_modules()
+
+        if modules is None:
+            return []
+
+        return list(modules)
 
     except Exception:
-        pass
 
-    return load_available_modules()
+        logger.exception(
+            "Unable to load Registry modules."
+        )
+
+        return []
+
+
+def get_registry_health() -> dict[str, int]:
+    """
+    Return Registry module health information.
+    """
+
+    if not registry_available:
+        return {
+            "total": 0,
+            "available": 0,
+            "unavailable": 0,
+        }
+
+    if get_registry_status is None:
+        return {
+            "total": 0,
+            "available": 0,
+            "unavailable": 0,
+        }
+
+    try:
+
+        status = get_registry_status()
+
+        if not isinstance(
+            status,
+            dict,
+        ):
+            return {
+                "total": 0,
+                "available": 0,
+                "unavailable": 0,
+            }
+
+        return {
+            "total": int(
+                status.get(
+                    "total",
+                    0,
+                )
+            ),
+            "available": int(
+                status.get(
+                    "available",
+                    0,
+                )
+            ),
+            "unavailable": int(
+                status.get(
+                    "unavailable",
+                    0,
+                )
+            ),
+        }
+
+    except Exception:
+
+        logger.exception(
+            "Unable to obtain Registry health."
+        )
+
+        return {
+            "total": 0,
+            "available": 0,
+            "unavailable": 0,
+        }
 
 
 # ============================================================
 # STATIC REGISTRY FEATURES
 # ============================================================
 
-FEATURES: dict[str, tuple[str, str]] = {
-
-    "citizens": (
-        "Citizens",
-        (
-            "Citizen population records and citizen "
-            "registry management."
-        ),
-    ),
-
-    "population": (
-        "Population Registry",
-        (
-            "Manage national population records, "
-            "households, persons and demographic "
-            "information."
-        ),
-    ),
-
-    "civil_registration": (
-        "Civil Registration",
-        (
-            "Register births, deaths, marriages, "
-            "certificates and other civil events."
-        ),
-    ),
-
-    "identity": (
-        "Identity Management",
-        (
-            "Manage national identity registration, "
-            "identification records and identity services."
-        ),
-    ),
-
-    "elections": (
-        "Elections",
-        (
-            "Manage electoral registration, voter records "
-            "and election administration."
-        ),
-    ),
+FEATURES: dict[
+    str,
+    tuple[str, str],
+] = {
 
     "households": (
         "Households",
@@ -372,14 +455,6 @@ FEATURES: dict[str, tuple[str, str]] = {
         ),
     ),
 
-    "reports": (
-        "Reports & Analytics",
-        (
-            "Generate operational reports, statistical "
-            "summaries and Registry analytics."
-        ),
-    ),
-
     "statistics": (
         "Statistics",
         (
@@ -393,14 +468,6 @@ FEATURES: dict[str, tuple[str, str]] = {
         (
             "Review Registry activity, administrative "
             "events and audit information."
-        ),
-    ),
-
-    "administration": (
-        "Administration",
-        (
-            "Manage users, roles, permissions, "
-            "configuration and system administration."
         ),
     ),
 
@@ -620,8 +687,20 @@ header[data-testid="stHeader"] {{
 
 
 # ============================================================
-# SIDEBAR
+# NAVIGATION
 # ============================================================
+
+def navigate_to(
+    key: str,
+) -> None:
+
+    st.session_state.active_module = key
+
+    st.session_state.citizen_editor_id = None
+    st.session_state.citizen_view_id = None
+
+    st.rerun()
+
 
 def sidebar_button(
     key: str,
@@ -634,11 +713,7 @@ def sidebar_button(
         use_container_width=True,
     ):
 
-        st.session_state.active_module = key
-        st.session_state.citizen_editor_id = None
-        st.session_state.citizen_view_id = None
-
-        st.rerun()
+        navigate_to(key)
 
 
 def render_sidebar() -> None:
@@ -684,83 +759,113 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        st.markdown("**Registry**")
+        # ----------------------------------------------------
+        # HOME
+        # ----------------------------------------------------
+
+        st.markdown("**Home**")
 
         sidebar_button(
             "overview",
             "Overview",
         )
 
+        # ----------------------------------------------------
+        # REGISTRY
+        # ----------------------------------------------------
+
+        st.markdown("**Registry**")
+
         sidebar_button(
             "citizens",
             "Citizens",
         )
 
-        sidebar_button(
-            "population",
-            "Population Registry",
-        )
+        # ----------------------------------------------------
+        # DYNAMIC REGISTRY MODULES
+        # ----------------------------------------------------
 
-        sidebar_button(
-            "civil_registration",
-            "Civil Registration",
-        )
+        registry_modules = load_all_modules()
 
-        sidebar_button(
-            "identity",
-            "Identity Management",
-        )
+        registered_keys = {
+            module.key
+            for module in registry_modules
+        }
 
-        sidebar_button(
-            "elections",
-            "Elections",
-        )
+        for module in registry_modules:
 
-        st.markdown("**Operations**")
+            if module.key == "citizens":
+                continue
 
-        sidebar_button(
-            "households",
-            "Households",
-        )
+            sidebar_button(
+                module.key,
+                module.label,
+            )
 
-        sidebar_button(
-            "documents",
-            "Documents",
-        )
+        # ----------------------------------------------------
+        # STATIC / PLANNED FEATURES
+        # ----------------------------------------------------
 
-        sidebar_button(
-            "verification",
-            "Verification",
-        )
+        static_navigation = [
+            (
+                "households",
+                "Households",
+            ),
+            (
+                "documents",
+                "Documents",
+            ),
+            (
+                "verification",
+                "Verification",
+            ),
+            (
+                "statistics",
+                "Statistics",
+            ),
+            (
+                "audit",
+                "Audit & Activity",
+            ),
+            (
+                "settings",
+                "System Settings",
+            ),
+        ]
 
-        sidebar_button(
-            "reports",
-            "Reports & Analytics",
-        )
+        remaining_static = [
+            item
+            for item in static_navigation
+            if item[0] not in registered_keys
+        ]
+
+        if remaining_static:
+
+            st.markdown("**Operations**")
+
+            for key, label in remaining_static:
+
+                sidebar_button(
+                    key,
+                    label,
+                )
+
+        # ----------------------------------------------------
+        # ADMINISTRATION
+        # ----------------------------------------------------
 
         st.markdown("**Administration**")
 
-        sidebar_button(
-            "administration",
-            "Administration",
-        )
+        if "administration" in registered_keys:
 
-        sidebar_button(
-            "settings",
-            "System Settings",
-        )
+            sidebar_button(
+                "administration",
+                "Administration",
+            )
 
-        st.markdown("**Other Features**")
-
-        sidebar_button(
-            "statistics",
-            "Statistics",
-        )
-
-        sidebar_button(
-            "audit",
-            "Audit & Activity",
-        )
+        # ----------------------------------------------------
+        # THEME
+        # ----------------------------------------------------
 
         st.divider()
 
@@ -792,8 +897,13 @@ def render_sidebar() -> None:
 
         st.divider()
 
-        st.caption("Registry Platform")
-        st.caption("Version 1.0.0")
+        st.caption(
+            "Registry Platform"
+        )
+
+        st.caption(
+            "Version 1.0.0"
+        )
 
 
 # ============================================================
@@ -860,8 +970,12 @@ def render_header() -> None:
                     "Database Attention"
                 )
 
+            health = get_registry_health()
+
             st.caption(
-                "Registry Platform"
+                f"Modules: "
+                f"{health['available']}/"
+                f"{health['total']} online"
             )
 
             st.caption(
@@ -959,12 +1073,15 @@ def get_session():
         return None
 
     try:
+
         return SessionLocal()
 
     except Exception:
+
         logger.exception(
             "Unable to create database session."
         )
+
         return None
 
 
@@ -994,9 +1111,12 @@ def write_audit(
             details=details,
         )
 
-        db.add(audit)
+        db.add(
+            audit
+        )
 
     except Exception:
+
         logger.exception(
             "Unable to create audit log."
         )
@@ -1020,7 +1140,10 @@ def calculate_age(
         - birth_date.year
         - (
             (today.month, today.day)
-            < (birth_date.month, birth_date.day)
+            < (
+                birth_date.month,
+                birth_date.day,
+            )
         )
     )
 
@@ -1059,7 +1182,9 @@ def get_citizen_count() -> int:
     try:
 
         return int(
-            db.query(Citizen).count()
+            db.query(
+                Citizen
+            ).count()
         )
 
     except Exception:
@@ -1095,7 +1220,9 @@ def search_citizens(
 
     try:
 
-        query = db.query(Citizen)
+        query = db.query(
+            Citizen
+        )
 
         search_text = search_text.strip()
 
@@ -1107,26 +1234,35 @@ def search_citizens(
 
             query = query.filter(
                 (
-                    Citizen.full_name.ilike(pattern)
+                    Citizen.full_name.ilike(
+                        pattern
+                    )
                 )
                 |
                 (
-                    Citizen.national_id.ilike(pattern)
+                    Citizen.national_id.ilike(
+                        pattern
+                    )
                 )
                 |
                 (
-                    Citizen.passport_number.ilike(pattern)
+                    Citizen.passport_number.ilike(
+                        pattern
+                    )
                 )
                 |
                 (
-                    Citizen.phone_number.ilike(pattern)
+                    Citizen.phone_number.ilike(
+                        pattern
+                    )
                 )
             )
 
         if state:
 
             query = query.filter(
-                Citizen.state_or_region == state
+                Citizen.state_or_region
+                == state
             )
 
         if (
@@ -1180,9 +1316,12 @@ def get_citizen(
     try:
 
         return (
-            db.query(Citizen)
+            db.query(
+                Citizen
+            )
             .filter(
-                Citizen.id == citizen_id
+                Citizen.id
+                == citizen_id
             )
             .first()
         )
@@ -1230,7 +1369,6 @@ def render_citizen_form(
             "Create a new national population record."
         )
 
-
     # --------------------------------------------------------
     # BASIC IDENTITY
     # --------------------------------------------------------
@@ -1275,34 +1413,29 @@ def render_citizen_form(
 
     with col3:
 
+        id_document_options = [
+            "",
+            "National ID",
+            "Passport",
+            "Birth Certificate",
+            "Other",
+        ]
+
+        current_id_type = (
+            citizen.id_document_type
+            if editing
+            else ""
+        )
+
         id_document_type = st.selectbox(
             "ID Document Type",
-            [
-                "",
-                "National ID",
-                "Passport",
-                "Birth Certificate",
-                "Other",
-            ],
+            id_document_options,
             index=(
-                [
-                    "",
-                    "National ID",
-                    "Passport",
-                    "Birth Certificate",
-                    "Other",
-                ].index(
-                    citizen.id_document_type
+                id_document_options.index(
+                    current_id_type
                 )
-                if editing
-                and citizen.id_document_type
-                in [
-                    "",
-                    "National ID",
-                    "Passport",
-                    "Birth Certificate",
-                    "Other",
-                ]
+                if current_id_type
+                in id_document_options
                 else 0
             ),
             key=(
@@ -1311,7 +1444,6 @@ def render_citizen_form(
                 else "citizen_id_type_new"
             ),
         )
-
 
     full_name = st.text_input(
         "Full Name *",
@@ -1327,7 +1459,6 @@ def render_citizen_form(
             else "citizen_full_name_new"
         ),
     )
-
 
     col1, col2, col3 = st.columns(3)
 
@@ -1368,7 +1499,8 @@ def render_citizen_form(
                     citizen.gender
                 )
                 if editing
-                and citizen.gender in gender_options
+                and citizen.gender
+                in gender_options
                 else 2
             ),
             key=(
@@ -1408,7 +1540,6 @@ def render_citizen_form(
             ),
         )
 
-
     nationality = st.text_input(
         "Nationality",
         value=(
@@ -1423,7 +1554,6 @@ def render_citizen_form(
             else "citizen_nationality_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # CONTACT
@@ -1467,7 +1597,6 @@ def render_citizen_form(
             ),
         )
 
-
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1503,7 +1632,6 @@ def render_citizen_form(
                 else "citizen_emergency_phone_new"
             ),
         )
-
 
     # --------------------------------------------------------
     # DEMOGRAPHICS
@@ -1547,7 +1675,6 @@ def render_citizen_form(
             ),
         )
 
-
     native_language = st.text_input(
         "Native Language",
         value=(
@@ -1562,7 +1689,6 @@ def render_citizen_form(
             else "citizen_language_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # LOCATION
@@ -1606,7 +1732,6 @@ def render_citizen_form(
             ),
         )
 
-
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1643,7 +1768,6 @@ def render_citizen_form(
             ),
         )
 
-
     community = st.text_input(
         "Community",
         value=(
@@ -1659,7 +1783,6 @@ def render_citizen_form(
         ),
     )
 
-
     residential_address = st.text_area(
         "Residential Address",
         value=(
@@ -1674,7 +1797,6 @@ def render_citizen_form(
             else "citizen_address_new"
         ),
     )
-
 
     duration_of_stay_years = st.number_input(
         "Duration of Stay (Years)",
@@ -1692,7 +1814,6 @@ def render_citizen_form(
             else "citizen_stay_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # HOUSEHOLD
@@ -1714,7 +1835,6 @@ def render_citizen_form(
             else "citizen_household_id_new"
         ),
     )
-
 
     household_role_options = [
         "Head of Household",
@@ -1744,7 +1864,6 @@ def render_citizen_form(
         ),
     )
 
-
     is_household_head = st.checkbox(
         "Is Head of Household",
         value=bool(
@@ -1758,7 +1877,6 @@ def render_citizen_form(
             else "citizen_household_head_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # EDUCATION
@@ -1797,7 +1915,6 @@ def render_citizen_form(
         ),
     )
 
-
     is_literate = st.checkbox(
         "Literate",
         value=bool(
@@ -1811,7 +1928,6 @@ def render_citizen_form(
             else "citizen_literate_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # EMPLOYMENT
@@ -1847,7 +1963,6 @@ def render_citizen_form(
             else "citizen_employment_new"
         ),
     )
-
 
     col1, col2 = st.columns(2)
 
@@ -1885,7 +2000,6 @@ def render_citizen_form(
             ),
         )
 
-
     industry_sector = st.text_input(
         "Industry Sector",
         value=(
@@ -1901,7 +2015,6 @@ def render_citizen_form(
         ),
     )
 
-
     monthly_income_range = st.text_input(
         "Monthly Income Range",
         value=(
@@ -1916,7 +2029,6 @@ def render_citizen_form(
             else "citizen_income_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # SPECIAL NEEDS
@@ -1938,7 +2050,6 @@ def render_citizen_form(
         ),
     )
 
-
     disability_type = st.text_input(
         "Disability Type",
         value=(
@@ -1953,7 +2064,6 @@ def render_citizen_form(
             else "citizen_disability_new"
         ),
     )
-
 
     col1, col2 = st.columns(2)
 
@@ -2006,7 +2116,6 @@ def render_citizen_form(
                 else "citizen_father_new"
             ),
         )
-
 
     # --------------------------------------------------------
     # ELECTIONS
@@ -2062,7 +2171,6 @@ def render_citizen_form(
             ),
         )
 
-
     col1, col2 = st.columns(2)
 
     with col1:
@@ -2099,7 +2207,6 @@ def render_citizen_form(
             ),
         )
 
-
     polling_station_name = st.text_input(
         "Polling Station Name",
         value=(
@@ -2115,7 +2222,6 @@ def render_citizen_form(
         ),
     )
 
-
     has_voted = st.checkbox(
         "Has Voted",
         value=bool(
@@ -2129,7 +2235,6 @@ def render_citizen_form(
             else "citizen_has_voted_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # ENUMERATION
@@ -2173,7 +2278,6 @@ def render_citizen_form(
             ),
         )
 
-
     enumeration_date = st.date_input(
         "Enumeration Date",
         value=(
@@ -2188,7 +2292,6 @@ def render_citizen_form(
             else "citizen_enum_date_new"
         ),
     )
-
 
     # --------------------------------------------------------
     # VERIFICATION
@@ -2223,7 +2326,6 @@ def render_citizen_form(
         ),
     )
 
-
     verification_notes = st.text_area(
         "Verification Notes",
         value=(
@@ -2238,7 +2340,6 @@ def render_citizen_form(
             else "citizen_verification_notes_new"
         ),
     )
-
 
     notes = st.text_area(
         "Notes",
@@ -2255,17 +2356,13 @@ def render_citizen_form(
         ),
     )
 
-
     # --------------------------------------------------------
     # SAVE
     # --------------------------------------------------------
 
     st.divider()
 
-    col1, col2, col3 = st.columns(
-        3
-    )
-
+    col1, col2, col3 = st.columns(3)
 
     with col1:
 
@@ -2285,7 +2382,6 @@ def render_citizen_form(
             use_container_width=True,
         )
 
-
     with col2:
 
         cancel_clicked = st.button(
@@ -2297,7 +2393,6 @@ def render_citizen_form(
             ),
             use_container_width=True,
         )
-
 
     with col3:
 
@@ -2313,12 +2408,11 @@ def render_citizen_form(
 
             archive_clicked = False
 
-
     if cancel_clicked:
 
         st.session_state.citizen_editor_id = None
-        st.rerun()
 
+        st.rerun()
 
     if archive_clicked and editing:
 
@@ -2326,11 +2420,10 @@ def render_citizen_form(
             citizen.id
         )
 
-
-    if not save_clicked:
-
         return
 
+    if not save_clicked:
+        return
 
     # --------------------------------------------------------
     # VALIDATION
@@ -2338,20 +2431,17 @@ def render_citizen_form(
 
     errors: list[str] = []
 
-
     if not full_name.strip():
 
         errors.append(
             "Full Name is required."
         )
 
-
     if date_of_birth > date.today():
 
         errors.append(
             "Date of Birth cannot be in the future."
         )
-
 
     if (
         has_special_needs
@@ -2362,7 +2452,6 @@ def render_citizen_form(
             "Please specify the disability type."
         )
 
-
     if errors:
 
         for error in errors:
@@ -2372,7 +2461,6 @@ def render_citizen_form(
             )
 
         return
-
 
     # --------------------------------------------------------
     # DATABASE WRITE
@@ -2393,8 +2481,10 @@ def render_citizen_form(
         date_of_birth=date_of_birth,
         gender=gender,
         marital_status=marital_status,
-        nationality=nationality.strip()
-        or "South Sudanese",
+        nationality=(
+            nationality.strip()
+            or "South Sudanese"
+        ),
         phone_number=clean_optional(
             phone_number
         ),
@@ -2445,7 +2535,9 @@ def render_citizen_form(
         monthly_income_range=clean_optional(
             monthly_income_range
         ),
-        has_special_needs_or_disability=has_special_needs,
+        has_special_needs_or_disability=(
+            has_special_needs
+        ),
         disability_type=clean_optional(
             disability_type
         ),
@@ -2480,7 +2572,9 @@ def render_citizen_form(
         ),
         has_voted=has_voted,
         enumerator_name=enumerator_name.strip(),
-        enumerator_badge_id=enumerator_badge_id.strip(),
+        enumerator_badge_id=(
+            enumerator_badge_id.strip()
+        ),
         enumeration_date=enumeration_date,
         verification_status=verification_status,
         verification_notes=clean_optional(
@@ -2510,7 +2604,6 @@ def save_citizen(
 
         return
 
-
     if Citizen is None:
 
         st.error(
@@ -2518,7 +2611,6 @@ def save_citizen(
         )
 
         return
-
 
     db = get_session()
 
@@ -2530,7 +2622,6 @@ def save_citizen(
 
         return
 
-
     try:
 
         national_id = values.get(
@@ -2541,18 +2632,20 @@ def save_citizen(
             "voter_id_number"
         )
 
-
         # ----------------------------------------------------
         # Duplicate National ID
         # ----------------------------------------------------
 
         if national_id:
 
-            query = db.query(
-                Citizen
-            ).filter(
-                Citizen.national_id
-                == national_id
+            query = (
+                db.query(
+                    Citizen
+                )
+                .filter(
+                    Citizen.national_id
+                    == national_id
+                )
             )
 
             if citizen is not None:
@@ -2571,18 +2664,20 @@ def save_citizen(
 
                 return
 
-
         # ----------------------------------------------------
         # Duplicate Voter ID
         # ----------------------------------------------------
 
         if voter_id_number:
 
-            query = db.query(
-                Citizen
-            ).filter(
-                Citizen.voter_id_number
-                == voter_id_number
+            query = (
+                db.query(
+                    Citizen
+                )
+                .filter(
+                    Citizen.voter_id_number
+                    == voter_id_number
+                )
             )
 
             if citizen is not None:
@@ -2600,7 +2695,6 @@ def save_citizen(
                 )
 
                 return
-
 
         # ----------------------------------------------------
         # CREATE
@@ -2627,7 +2721,6 @@ def save_citizen(
                 "Citizen record created."
             )
 
-
         # ----------------------------------------------------
         # UPDATE
         # ----------------------------------------------------
@@ -2639,7 +2732,6 @@ def save_citizen(
             message = (
                 "Citizen record updated."
             )
-
 
         # ----------------------------------------------------
         # Assign values
@@ -2658,15 +2750,15 @@ def save_citizen(
                     value,
                 )
 
-
         citizen.age = calculate_age(
             values.get(
                 "date_of_birth"
             )
         )
 
-        citizen.updated_at = datetime.utcnow()
-
+        citizen.updated_at = (
+            datetime.utcnow()
+        )
 
         # ----------------------------------------------------
         # Audit
@@ -2682,22 +2774,21 @@ def save_citizen(
             details=message,
         )
 
-
         db.commit()
 
-
         st.session_state.citizen_editor_id = None
-        st.session_state.citizen_view_id = (
-            str(citizen.id)
-        )
 
+        st.session_state.citizen_view_id = (
+            str(
+                citizen.id
+            )
+        )
 
         st.success(
             message
         )
 
         st.rerun()
-
 
     except Exception as exc:
 
@@ -2715,7 +2806,9 @@ def save_citizen(
             "Technical details"
         ):
 
-            st.exception(exc)
+            st.exception(
+                exc
+            )
 
     finally:
 
@@ -2738,7 +2831,6 @@ def archive_citizen(
 
         return
 
-
     if Citizen is None:
 
         st.error(
@@ -2746,7 +2838,6 @@ def archive_citizen(
         )
 
         return
-
 
     db = get_session()
 
@@ -2758,17 +2849,18 @@ def archive_citizen(
 
         return
 
-
     try:
 
         citizen = (
-            db.query(Citizen)
+            db.query(
+                Citizen
+            )
             .filter(
-                Citizen.id == citizen_id
+                Citizen.id
+                == citizen_id
             )
             .first()
         )
-
 
         if citizen is None:
 
@@ -2778,13 +2870,13 @@ def archive_citizen(
 
             return
 
-
         citizen.verification_status = (
             "Archived"
         )
 
-        citizen.updated_at = datetime.utcnow()
-
+        citizen.updated_at = (
+            datetime.utcnow()
+        )
 
         write_audit(
             db=db,
@@ -2799,20 +2891,16 @@ def archive_citizen(
             ),
         )
 
-
         db.commit()
-
 
         st.session_state.citizen_editor_id = None
         st.session_state.citizen_view_id = None
-
 
         st.success(
             "Citizen record archived."
         )
 
         st.rerun()
-
 
     except Exception as exc:
 
@@ -2830,7 +2918,9 @@ def archive_citizen(
             "Technical details"
         ):
 
-            st.exception(exc)
+            st.exception(
+                exc
+            )
 
     finally:
 
@@ -2849,9 +2939,7 @@ def render_citizen_profile(
         "Citizen Profile"
     )
 
-
     col1, col2, col3 = st.columns(3)
-
 
     with col1:
 
@@ -2859,7 +2947,6 @@ def render_citizen_profile(
             "Age",
             citizen.age or 0,
         )
-
 
     with col2:
 
@@ -2869,7 +2956,6 @@ def render_citizen_profile(
             or "Pending Review",
         )
 
-
     with col3:
 
         st.metric(
@@ -2878,17 +2964,13 @@ def render_citizen_profile(
             or "Not Registered",
         )
 
-
     st.divider()
-
 
     st.markdown(
         f"### {citizen.full_name}"
     )
 
-
     identity_col1, identity_col2 = st.columns(2)
-
 
     with identity_col1:
 
@@ -2944,13 +3026,11 @@ def render_citizen_profile(
             f"{citizen.native_language or 'Not provided'}"
         )
 
-
     st.divider()
 
     st.markdown(
         "### Location"
     )
-
 
     st.write(
         f"**State / Region:** "
@@ -2977,13 +3057,11 @@ def render_citizen_profile(
         f"{citizen.residential_address or 'Not provided'}"
     )
 
-
     st.divider()
 
     st.markdown(
         "### Household"
     )
-
 
     st.write(
         f"**Household ID:** "
@@ -3000,16 +3078,13 @@ def render_citizen_profile(
         f"{'Yes' if citizen.is_household_head else 'No'}"
     )
 
-
     st.divider()
 
     st.markdown(
         "### Education & Employment"
     )
 
-
     col1, col2 = st.columns(2)
-
 
     with col1:
 
@@ -3035,13 +3110,11 @@ def render_citizen_profile(
             f"{citizen.primary_occupation or 'Not provided'}"
         )
 
-
     st.divider()
 
     st.markdown(
         "### Electoral Information"
     )
-
 
     st.write(
         f"**Voter ID:** "
@@ -3063,13 +3136,11 @@ def render_citizen_profile(
         f"{'Yes' if citizen.has_voted else 'No'}"
     )
 
-
     st.divider()
 
     st.markdown(
         "### Verification"
     )
-
 
     st.write(
         f"**Status:** "
@@ -3091,7 +3162,6 @@ def render_citizen_profile(
         f"{citizen.enumeration_date or 'Not provided'}"
     )
 
-
     if citizen.notes:
 
         st.divider()
@@ -3104,12 +3174,9 @@ def render_citizen_profile(
             citizen.notes
         )
 
-
     st.divider()
 
-
     col1, col2 = st.columns(2)
-
 
     with col1:
 
@@ -3120,13 +3187,14 @@ def render_citizen_profile(
         ):
 
             st.session_state.citizen_editor_id = (
-                str(citizen.id)
+                str(
+                    citizen.id
+                )
             )
 
             st.session_state.citizen_view_id = None
 
             st.rerun()
-
 
     with col2:
 
@@ -3155,11 +3223,6 @@ def render_citizens() -> None:
         ),
     )
 
-
-    # --------------------------------------------------------
-    # DATABASE STATUS
-    # --------------------------------------------------------
-
     if not database_connected:
 
         st.warning(
@@ -3180,7 +3243,6 @@ def render_citizens() -> None:
 
         return
 
-
     if not models_available:
 
         st.error(
@@ -3196,7 +3258,6 @@ def render_citizens() -> None:
             )
 
         return
-
 
     # --------------------------------------------------------
     # VIEW PROFILE
@@ -3224,12 +3285,22 @@ def render_citizens() -> None:
 
             return
 
-
     # --------------------------------------------------------
     # EDIT
     # --------------------------------------------------------
 
     if st.session_state.citizen_editor_id:
+
+        if (
+            st.session_state.citizen_editor_id
+            == "NEW"
+        ):
+
+            render_citizen_form(
+                None
+            )
+
+            return
 
         citizen = get_citizen(
             st.session_state.citizen_editor_id
@@ -3251,16 +3322,13 @@ def render_citizens() -> None:
 
             return
 
-
     # --------------------------------------------------------
     # REGISTRY SUMMARY
     # --------------------------------------------------------
 
     total_citizens = get_citizen_count()
 
-
     col1, col2, col3, col4 = st.columns(4)
-
 
     with col1:
 
@@ -3269,7 +3337,6 @@ def render_citizens() -> None:
             total_citizens,
             "Citizen records",
         )
-
 
     with col2:
 
@@ -3282,7 +3349,6 @@ def render_citizens() -> None:
             ),
         )
 
-
     with col3:
 
         st.metric(
@@ -3293,7 +3359,6 @@ def render_citizens() -> None:
                 )
             ),
         )
-
 
     with col4:
 
@@ -3306,18 +3371,13 @@ def render_citizens() -> None:
             ),
         )
 
-
     st.divider()
-
 
     # --------------------------------------------------------
     # ACTIONS
     # --------------------------------------------------------
 
-    action_col1, action_col2 = st.columns(
-        2
-    )
-
+    action_col1, action_col2 = st.columns(2)
 
     with action_col1:
 
@@ -3327,12 +3387,9 @@ def render_citizens() -> None:
             use_container_width=True,
         ):
 
-            st.session_state.citizen_editor_id = (
-                "NEW"
-            )
+            st.session_state.citizen_editor_id = "NEW"
 
             st.rerun()
-
 
     with action_col2:
 
@@ -3344,21 +3401,7 @@ def render_citizens() -> None:
 
             st.rerun()
 
-
-    if (
-        st.session_state.citizen_editor_id
-        == "NEW"
-    ):
-
-        render_citizen_form(
-            None
-        )
-
-        return
-
-
     st.divider()
-
 
     # --------------------------------------------------------
     # SEARCH
@@ -3368,11 +3411,7 @@ def render_citizens() -> None:
         "Search Citizen Registry"
     )
 
-
-    search_col1, search_col2, search_col3 = st.columns(
-        3
-    )
-
+    search_col1, search_col2, search_col3 = st.columns(3)
 
     with search_col1:
 
@@ -3383,9 +3422,6 @@ def render_citizens() -> None:
             ),
             key="citizen_search",
         )
-
-
-    # Get state choices.
 
     db = get_session()
 
@@ -3425,7 +3461,6 @@ def render_citizens() -> None:
 
             db.close()
 
-
     with search_col2:
 
         selected_state = st.selectbox(
@@ -3438,7 +3473,6 @@ def render_citizens() -> None:
             ),
             key="citizen_state_filter",
         )
-
 
     with search_col3:
 
@@ -3455,18 +3489,15 @@ def render_citizens() -> None:
             key="citizen_verification_filter",
         )
 
-
     records = search_citizens(
         search_text=search_text,
         state=selected_state,
         verification_status=verification_filter,
     )
 
-
     st.caption(
         f"{len(records)} record(s) found."
     )
-
 
     # --------------------------------------------------------
     # RESULTS
@@ -3480,7 +3511,6 @@ def render_citizens() -> None:
 
         return
 
-
     for citizen in records:
 
         with st.container(
@@ -3490,7 +3520,6 @@ def render_citizens() -> None:
             col1, col2, col3, col4 = st.columns(
                 [4, 2, 2, 2]
             )
-
 
             with col1:
 
@@ -3503,7 +3532,6 @@ def render_citizens() -> None:
                     f"{citizen.national_id or 'Not provided'}"
                 )
 
-
             with col2:
 
                 st.write(
@@ -3513,7 +3541,6 @@ def render_citizens() -> None:
                 st.write(
                     f"**Gender:** {citizen.gender}"
                 )
-
 
             with col3:
 
@@ -3527,39 +3554,32 @@ def render_citizens() -> None:
                     f"{citizen.verification_status}"
                 )
 
-
             with col4:
-
-                view_key = (
-                    f"view_citizen_{citizen.id}"
-                )
-
-                edit_key = (
-                    f"edit_citizen_{citizen.id}"
-                )
-
 
                 if st.button(
                     "View",
-                    key=view_key,
+                    key=f"view_citizen_{citizen.id}",
                     use_container_width=True,
                 ):
 
                     st.session_state.citizen_view_id = (
-                        str(citizen.id)
+                        str(
+                            citizen.id
+                        )
                     )
 
                     st.rerun()
 
-
                 if st.button(
                     "Edit",
-                    key=edit_key,
+                    key=f"edit_citizen_{citizen.id}",
                     use_container_width=True,
                 ):
 
                     st.session_state.citizen_editor_id = (
-                        str(citizen.id)
+                        str(
+                            citizen.id
+                        )
                     )
 
                     st.rerun()
@@ -3580,7 +3600,6 @@ def render_overview() -> None:
         ),
     )
 
-
     citizen_count = (
         get_citizen_count()
         if database_connected
@@ -3588,14 +3607,17 @@ def render_overview() -> None:
         else 0
     )
 
+    registry_health = get_registry_health()
+
+    # --------------------------------------------------------
+    # SUMMARY
+    # --------------------------------------------------------
 
     st.subheader(
         "Registry Summary"
     )
 
-
     col1, col2, col3, col4 = st.columns(4)
-
 
     with col1:
 
@@ -3605,98 +3627,102 @@ def render_overview() -> None:
             "Population records",
         )
 
-
     with col2:
 
         render_kpi(
-            "Civil Records",
-            0,
-            "Birth, death and civil events",
+            "Registry Modules",
+            registry_health["total"],
+            "Registered modules",
         )
-
 
     with col3:
 
         render_kpi(
-            "Identity Records",
-            0,
-            "National identity records",
+            "Modules Online",
+            registry_health["available"],
+            "Available modules",
         )
-
 
     with col4:
 
         render_kpi(
-            "Election Records",
-            0,
-            "Electoral records",
+            "Modules Attention",
+            registry_health["unavailable"],
+            "Modules requiring attention",
         )
-
 
     st.divider()
 
+    # --------------------------------------------------------
+    # REGISTRY SERVICES
+    # --------------------------------------------------------
 
     st.subheader(
         "Registry Services"
     )
 
+    services: list[
+        tuple[str, str]
+    ] = []
 
-    services = [
+    for module in load_all_modules():
 
-        (
-            "Population Registry",
+        services.append(
             (
-                "Manage national population records, "
-                "households, persons and demographic "
-                "information."
+                str(
+                    module.label
+                ),
+                str(
+                    module.description
+                ),
+            )
+        )
+
+    services.insert(
+        0,
+        (
+            "Citizens",
+            (
+                "Manage national citizen population "
+                "records and citizen profiles."
             ),
         ),
+    )
 
-        (
-            "Civil Registration",
+    services.extend(
+        [
             (
-                "Register births, deaths, marriages, "
-                "certificates and other civil events."
+                "Households",
+                (
+                    "Manage household records and "
+                    "household relationships."
+                ),
             ),
-        ),
-
-        (
-            "Identity Management",
             (
-                "Manage national identity registration, "
-                "identification records and identity "
-                "services."
+                "Documents",
+                (
+                    "Manage Registry certificates and "
+                    "official documents."
+                ),
             ),
-        ),
-
-        (
-            "Elections",
             (
-                "Manage electoral registration, voter "
-                "records and election administration."
+                "Verification",
+                (
+                    "Verify population, civil registration "
+                    "and identity records."
+                ),
             ),
-        ),
-
-        (
-            "Reports & Analytics",
             (
-                "Generate operational reports, statistical "
-                "summaries and Registry analytics."
+                "Statistics",
+                (
+                    "View national Registry statistics "
+                    "and demographic summaries."
+                ),
             ),
-        ),
-
-        (
-            "Administration",
-            (
-                "Manage users, roles, permissions, "
-                "configuration and system administration."
-            ),
-        ),
-    ]
-
+        ]
+    )
 
     service_columns = st.columns(3)
-
 
     for index, (
         title,
@@ -3712,17 +3738,17 @@ def render_overview() -> None:
                 description,
             )
 
-
     st.divider()
 
+    # --------------------------------------------------------
+    # SYSTEM STATUS
+    # --------------------------------------------------------
 
     st.subheader(
         "System Status"
     )
 
-
     status_col1, status_col2 = st.columns(2)
-
 
     with status_col1:
 
@@ -3738,14 +3764,22 @@ def render_overview() -> None:
                 "Database Attention Required"
             )
 
-
     with status_col2:
 
         if registry_available:
 
-            st.success(
-                "Registry Module System Available"
-            )
+            if registry_health["unavailable"] == 0:
+
+                st.success(
+                    "All Registry Modules Available"
+                )
+
+            else:
+
+                st.warning(
+                    f"{registry_health['unavailable']} "
+                    "Registry module(s) require attention."
+                )
 
         else:
 
@@ -3753,11 +3787,14 @@ def render_overview() -> None:
                 "Registry Module System Unavailable"
             )
 
+    # --------------------------------------------------------
+    # DATABASE ERROR
+    # --------------------------------------------------------
 
     if not database_connected:
 
         with st.expander(
-            "Database technical details"
+            "Database Technical Details"
         ):
 
             st.code(
@@ -3766,11 +3803,59 @@ def render_overview() -> None:
                 "No database error information is available."
             )
 
+    # --------------------------------------------------------
+    # MODULE ERRORS
+    # --------------------------------------------------------
 
-    if not registry_available:
+    if registry_available:
+
+        errors: dict[str, str] = {}
+
+        if get_module_errors is not None:
+
+            try:
+
+                errors = (
+                    get_module_errors()
+                    or {}
+                )
+
+            except Exception:
+
+                errors = {}
+
+        if errors:
+
+            st.subheader(
+                "Registry Module Diagnostics"
+            )
+
+            for key, error in errors.items():
+
+                module = (
+                    get_module(key)
+                    if get_module is not None
+                    else None
+                )
+
+                label = (
+                    module.label
+                    if module is not None
+                    else key
+                )
+
+                with st.expander(
+                    f"{label} — unavailable"
+                ):
+
+                    st.code(
+                        str(error)
+                    )
+
+    elif registry_error:
 
         with st.expander(
-            "Module registry technical details"
+            "Module Registry Technical Details"
         ):
 
             st.code(
@@ -3794,62 +3879,12 @@ def render_static_feature(
         ),
     )
 
-
     render_page_header(
         title,
         description,
     )
 
-
-    if key == "population":
-
-        st.subheader(
-            "Population Records"
-        )
-
-        st.info(
-            "Population administration is available "
-            "through the Citizens and Household registry."
-        )
-
-
-    elif key == "civil_registration":
-
-        st.subheader(
-            "Civil Events"
-        )
-
-        st.info(
-            "Birth, death, marriage and certificate "
-            "records will appear here."
-        )
-
-
-    elif key == "identity":
-
-        st.subheader(
-            "Identity Records"
-        )
-
-        st.info(
-            "National identity records and identity "
-            "services will appear here."
-        )
-
-
-    elif key == "elections":
-
-        st.subheader(
-            "Electoral Registration"
-        )
-
-        st.info(
-            "Voter registration and election administration "
-            "records will appear here."
-        )
-
-
-    elif key == "households":
+    if key == "households":
 
         st.subheader(
             "Household Records"
@@ -3859,7 +3894,6 @@ def render_static_feature(
             "Household records and household relationships "
             "will appear here."
         )
-
 
     elif key == "documents":
 
@@ -3872,7 +3906,6 @@ def render_static_feature(
             "will appear here."
         )
 
-
     elif key == "verification":
 
         st.subheader(
@@ -3882,19 +3915,6 @@ def render_static_feature(
         st.info(
             "Verification services will appear here."
         )
-
-
-    elif key == "reports":
-
-        st.subheader(
-            "Reports & Analytics"
-        )
-
-        st.info(
-            "Operational reports and Registry analytics "
-            "will appear here."
-        )
-
 
     elif key == "statistics":
 
@@ -3906,7 +3926,6 @@ def render_static_feature(
             "National Registry statistics will appear here."
         )
 
-
     elif key == "audit":
 
         st.subheader(
@@ -3917,19 +3936,6 @@ def render_static_feature(
             "Registry audit activity will appear here."
         )
 
-
-    elif key == "administration":
-
-        st.subheader(
-            "Administration"
-        )
-
-        st.info(
-            "User, role, permission and system "
-            "administration tools will appear here."
-        )
-
-
     elif key == "settings":
 
         st.subheader(
@@ -3939,7 +3945,6 @@ def render_static_feature(
         st.info(
             "Registry platform configuration will appear here."
         )
-
 
     else:
 
@@ -3955,11 +3960,21 @@ def render_static_feature(
 def render_registered_module(
     key: str,
 ) -> bool:
+    """
+    Render a module registered in modules.registry.
+
+    Returns:
+        True if the module exists and was handled.
+        False if the module does not exist.
+    """
 
     if not registry_available:
         return False
 
     if get_module is None:
+        return False
+
+    if render_module is None:
         return False
 
     try:
@@ -3971,7 +3986,7 @@ def render_registered_module(
     except Exception as exc:
 
         logger.exception(
-            "Unable to retrieve module '%s'.",
+            "Unable to retrieve Registry module '%s'.",
             key,
         )
 
@@ -3980,17 +3995,21 @@ def render_registered_module(
         )
 
         with st.expander(
-            "Technical details"
+            "Technical Details"
         ):
 
-            st.exception(exc)
+            st.exception(
+                exc
+            )
 
         return True
-
 
     if module is None:
         return False
 
+    # --------------------------------------------------------
+    # MODULE HEADER
+    # --------------------------------------------------------
 
     label = getattr(
         module,
@@ -4001,35 +4020,30 @@ def render_registered_module(
         ).title(),
     )
 
-
     description = getattr(
         module,
         "description",
         "Registry management module.",
     )
 
-
     render_page_header(
         str(label),
         str(description),
     )
 
+    # --------------------------------------------------------
+    # AVAILABILITY
+    # --------------------------------------------------------
 
-    available = bool(
-        getattr(
-            module,
-            "available",
-            True,
-        )
-    )
-
-
-    if not available:
+    if not getattr(
+        module,
+        "available",
+        False,
+    ):
 
         st.warning(
-            "This Registry module is currently unavailable."
+            f"{label} is currently unavailable."
         )
-
 
         error = getattr(
             module,
@@ -4037,88 +4051,52 @@ def render_registered_module(
             None,
         )
 
-
         if error:
 
             with st.expander(
-                "Technical details"
+                "Technical Details"
             ):
 
                 st.code(
                     str(error)
                 )
 
-
         return True
 
-
-    if render_module is None:
-
-        st.error(
-            "The Registry module renderer is unavailable."
-        )
-
-        return True
-
+    # --------------------------------------------------------
+    # RENDER
+    # --------------------------------------------------------
 
     try:
 
         render_module(
-            key
+            module
         )
-
-
-    except TypeError:
-
-        try:
-
-            render_module(
-                module
-            )
-
-        except Exception as exc:
-
-            logger.exception(
-                "Module '%s' failed.",
-                key,
-            )
-
-            st.error(
-                "The selected Registry module encountered "
-                "a runtime error."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.exception(exc)
-
 
     except Exception as exc:
 
         logger.exception(
-            "Module '%s' failed.",
+            "Registry module '%s' failed during rendering.",
             key,
         )
 
         st.error(
-            "The selected Registry module encountered "
-            "a runtime error."
+            f"Unable to render {label}."
         )
 
         with st.expander(
-            "Technical details"
+            "Technical Details"
         ):
 
-            st.exception(exc)
-
+            st.exception(
+                exc
+            )
 
     return True
 
 
 # ============================================================
-# APPLICATION
+# APPLICATION ROUTER
 # ============================================================
 
 inject_css()
@@ -4126,7 +4104,6 @@ inject_css()
 render_sidebar()
 
 render_header()
-
 
 active = str(
     st.session_state.active_module
@@ -4152,41 +4129,44 @@ elif active == "citizens":
 
 
 # ============================================================
+# REGISTERED MODULES
+# ============================================================
+
+elif (
+    registry_available
+    and module_exists is not None
+    and module_exists(active)
+):
+
+    render_registered_module(
+        active
+    )
+
+
+# ============================================================
 # STATIC FEATURES
 # ============================================================
 
 elif active in FEATURES:
 
-    handled = render_registered_module(
+    render_static_feature(
         active
     )
 
-    if not handled:
-
-        render_static_feature(
-            active
-        )
-
 
 # ============================================================
-# DYNAMIC REGISTRY MODULES
+# UNKNOWN MODULE
 # ============================================================
 
 else:
 
-    handled = render_registered_module(
-        active
+    st.error(
+        "The requested Registry module could not be found."
     )
 
-    if not handled:
-
-        st.error(
-            "The requested Registry module could not be found."
-        )
-
-        st.info(
-            "Select another module from the sidebar."
-        )
+    st.info(
+        "Select another module from the Registry navigation."
+    )
 
 
 # ============================================================
@@ -4195,9 +4175,7 @@ else:
 
 st.divider()
 
-
 footer_col1, footer_col2 = st.columns(2)
-
 
 with footer_col1:
 
@@ -4205,7 +4183,6 @@ with footer_col1:
         "South Sudan National Registry • "
         "Registry Platform • Version 1.0.0"
     )
-
 
 with footer_col2:
 
