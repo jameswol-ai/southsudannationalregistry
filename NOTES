@@ -251,3 +251,23 @@ lib/
 ├── storage.ts
 ├── types.ts
 └── utils.ts
+
+                  SOUTH SUDAN NATIONAL REGISTRY
+                              │
+             ┌────────────────┴────────────────┐
+             │                                 │
+             ▼                                 ▼
+       Next.js AI Studio                 Streamlit AI Studio
+             │                                 │
+             ▼                                 ▼
+       /api/registry/*                  Python services
+             │                                 │
+             └──────────────┬──────────────────┘
+                            ▼
+                       Registry API
+                            │
+                            ▼
+                       SQLAlchemy
+                            │
+                            ▼
+                       PostgreSQL
