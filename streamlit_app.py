@@ -21,8 +21,6 @@ import streamlit as st
 
 # ============================================================
 # PAGE CONFIGURATION
-# IMPORTANT:
-# Must execute before any Streamlit UI/session-state work.
 # ============================================================
 
 st.set_page_config(
@@ -76,15 +74,15 @@ if "dark_mode" not in st.session_state:
 
 
 # ============================================================
-# SAFE EMBLEM LOADING
+# SAFE EMBLEM LOADER
 # ============================================================
 
 def load_emblem():
     """
-    Safely load the South Sudan emblem.
+    Safely load assets/south_sudan_emblem.png.
 
-    A missing or corrupted PNG must NEVER crash the
-    Streamlit application.
+    A missing, empty, corrupted, or invalid image must
+    never crash the application.
 
     Returns:
         PIL Image or None.
@@ -93,7 +91,7 @@ def load_emblem():
     if not EMBLEM_PATH.exists():
 
         logger.warning(
-            "Emblem not found: %s",
+            "South Sudan emblem not found: %s",
             EMBLEM_PATH,
         )
 
@@ -108,20 +106,20 @@ def load_emblem():
         if not raw:
 
             logger.warning(
-                "Emblem file is empty: %s",
+                "South Sudan emblem is empty: %s",
                 EMBLEM_PATH,
             )
 
             return None
 
-        # Validate image data.
+        # Validate the image.
         with Image.open(
             io.BytesIO(raw)
         ) as image:
 
             image.verify()
 
-        # Re-open after verify().
+        # verify() invalidates the object, so reopen it.
         image = Image.open(
             io.BytesIO(raw)
         )
@@ -153,6 +151,7 @@ def load_emblem():
 # ============================================================
 
 database_connected = False
+
 database_error: Exception | None = None
 
 try:
@@ -166,7 +165,7 @@ except Exception as exc:
     database_error = exc
 
     logger.exception(
-        "Could not import database initializer."
+        "Could not import database.database.init_db."
     )
 
 
@@ -214,7 +213,7 @@ try:
 except Exception as exc:
 
     logger.exception(
-        "Could not load Registry module system."
+        "Could not load modules.registry."
     )
 
     get_available_modules = None
@@ -234,6 +233,7 @@ def get_theme() -> dict[str, str]:
             "background": "#0B1220",
             "surface": "#111827",
             "surface_alt": "#172033",
+            "surface_hover": "#1E293B",
             "text": "#F8FAFC",
             "muted": "#94A3B8",
             "border": "#263247",
@@ -249,6 +249,7 @@ def get_theme() -> dict[str, str]:
         "background": "#F8FAFC",
         "surface": "#FFFFFF",
         "surface_alt": "#F1F5F9",
+        "surface_hover": "#E2E8F0",
         "text": "#0F172A",
         "muted": "#64748B",
         "border": "#E2E8F0",
@@ -274,8 +275,19 @@ def inject_css() -> None:
 <style>
 
 /* ============================================================
-   APPLICATION
+   GLOBAL
    ============================================================ */
+
+html,
+body,
+[class*="css"] {{
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}}
 
 .stApp {{
     background: {theme["background"]};
@@ -302,11 +314,8 @@ section[data-testid="stSidebar"] * {{
     color: {theme["text"]};
 }}
 
-.sidebar-brand {{
-    padding: 8px 4px 18px;
-}}
-
 .sidebar-title {{
+    color: {theme["text"]};
     font-size: 18px;
     font-weight: 800;
     line-height: 1.25;
@@ -315,7 +324,7 @@ section[data-testid="stSidebar"] * {{
 .sidebar-subtitle {{
     color: {theme["muted"]};
     font-size: 11px;
-    line-height: 1.45;
+    line-height: 1.5;
     margin-top: 5px;
 }}
 
@@ -326,7 +335,21 @@ section[data-testid="stSidebar"] * {{
     text-transform: uppercase;
     letter-spacing: 0.08em;
     margin-top: 18px;
-    margin-bottom: 7px;
+    margin-bottom: 8px;
+}}
+
+
+/* ============================================================
+   SIDEBAR BUTTONS
+   ============================================================ */
+
+section[data-testid="stSidebar"]
+.stButton > button {{
+    width: 100%;
+    min-height: 38px;
+    border-radius: 9px;
+    text-align: left;
+    font-weight: 600;
 }}
 
 
@@ -352,6 +375,7 @@ section[data-testid="stSidebar"] * {{
 .registry-subtitle {{
     color: {theme["muted"]};
     font-size: 13px;
+    line-height: 1.5;
     margin-top: 6px;
 }}
 
@@ -394,14 +418,14 @@ section[data-testid="stSidebar"] * {{
     justify-content: center;
     background: {theme["accent"]};
     border: 3px solid #FBBF24;
-    color: white;
+    color: #FFFFFF;
     font-size: 19px;
     font-weight: 900;
 }}
 
 
 /* ============================================================
-   CONTENT CARDS
+   CARDS
    ============================================================ */
 
 .overview-card,
@@ -419,13 +443,13 @@ section[data-testid="stSidebar"] * {{
 
 .module-card {{
     padding: 18px;
-    min-height: 130px;
+    min-height: 125px;
     margin-bottom: 15px;
 }}
 
 .kpi-card {{
     padding: 18px;
-    min-height: 125px;
+    min-height: 120px;
 }}
 
 .registry-kicker {{
@@ -443,15 +467,10 @@ section[data-testid="stSidebar"] * {{
     margin-top: 5px;
 }}
 
-.registry-description,
-.module-description,
-.kpi-description {{
-    color: {theme["muted"]};
-    line-height: 1.55;
-}}
-
 .registry-description {{
+    color: {theme["muted"]};
     font-size: 14px;
+    line-height: 1.6;
     margin-top: 7px;
 }}
 
@@ -462,7 +481,9 @@ section[data-testid="stSidebar"] * {{
 }}
 
 .module-description {{
+    color: {theme["muted"]};
     font-size: 13px;
+    line-height: 1.5;
     margin-top: 6px;
 }}
 
@@ -480,26 +501,14 @@ section[data-testid="stSidebar"] * {{
 }}
 
 .kpi-description {{
+    color: {theme["muted"]};
     font-size: 11px;
     margin-top: 5px;
 }}
 
 
 /* ============================================================
-   SIDEBAR BUTTONS
-   ============================================================ */
-
-section[data-testid="stSidebar"]
-.stButton > button {{
-    width: 100%;
-    text-align: left;
-    border-radius: 9px;
-    min-height: 38px;
-}}
-
-
-/* ============================================================
-   STREAMLIT
+   STREAMLIT CHROME
    ============================================================ */
 
 #MainMenu {{
@@ -524,7 +533,7 @@ inject_css()
 
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # ============================================================
 
 def sidebar_navigation() -> None:
@@ -558,7 +567,7 @@ def sidebar_navigation() -> None:
 
         st.markdown(
             """
-<div class="sidebar-brand">
+<div>
 
     <div class="sidebar-title">
         South Sudan National Registry
@@ -576,21 +585,23 @@ def sidebar_navigation() -> None:
 
 
         # ----------------------------------------------------
-        # System status
+        # DATABASE STATUS
+        #
+        # IMPORTANT:
+        # No icon= argument is used here.
+        # This avoids Streamlit emoji validation errors.
         # ----------------------------------------------------
 
         if database_connected:
 
             st.success(
-                "System Online",
-                icon="●",
+                "System Online"
             )
 
         else:
 
             st.warning(
-                "Database Attention Required",
-                icon="!",
+                "Database Attention Required"
             )
 
 
@@ -598,7 +609,7 @@ def sidebar_navigation() -> None:
 
 
         # ----------------------------------------------------
-        # Main navigation
+        # REGISTRY
         # ----------------------------------------------------
 
         st.markdown(
@@ -607,7 +618,7 @@ def sidebar_navigation() -> None:
         )
 
 
-        navigation = [
+        registry_navigation = [
             (
                 "overview",
                 "Overview",
@@ -635,11 +646,11 @@ def sidebar_navigation() -> None:
         ]
 
 
-        for key, label in navigation:
+        for key, label in registry_navigation:
 
             if st.button(
                 label,
-                key=f"sidebar_{key}",
+                key=f"nav_{key}",
                 use_container_width=True,
             ):
 
@@ -649,7 +660,7 @@ def sidebar_navigation() -> None:
 
 
         # ----------------------------------------------------
-        # Platform
+        # PLATFORM
         # ----------------------------------------------------
 
         st.markdown(
@@ -674,7 +685,7 @@ def sidebar_navigation() -> None:
 
             if st.button(
                 label,
-                key=f"sidebar_{key}",
+                key=f"nav_{key}",
                 use_container_width=True,
             ):
 
@@ -684,7 +695,7 @@ def sidebar_navigation() -> None:
 
 
         # ----------------------------------------------------
-        # Additional features
+        # OTHER FEATURES
         # ----------------------------------------------------
 
         st.markdown(
@@ -717,7 +728,7 @@ def sidebar_navigation() -> None:
 
             if st.button(
                 label,
-                key=f"sidebar_{key}",
+                key=f"nav_{key}",
                 use_container_width=True,
             ):
 
@@ -727,7 +738,7 @@ def sidebar_navigation() -> None:
 
 
         # ----------------------------------------------------
-        # Settings
+        # SYSTEM
         # ----------------------------------------------------
 
         st.markdown(
@@ -738,7 +749,7 @@ def sidebar_navigation() -> None:
 
         if st.button(
             "Settings",
-            key="sidebar_settings",
+            key="nav_settings",
             use_container_width=True,
         ):
 
@@ -751,7 +762,7 @@ def sidebar_navigation() -> None:
 
         if st.button(
             "Refresh Application",
-            key="sidebar_refresh",
+            key="nav_refresh",
             use_container_width=True,
         ):
 
@@ -767,7 +778,7 @@ def sidebar_navigation() -> None:
 
         if st.button(
             theme_label,
-            key="sidebar_theme",
+            key="nav_theme",
             use_container_width=True,
         ):
 
@@ -777,10 +788,6 @@ def sidebar_navigation() -> None:
 
             st.rerun()
 
-
-        # ----------------------------------------------------
-        # Version
-        # ----------------------------------------------------
 
         st.divider()
 
@@ -797,7 +804,7 @@ sidebar_navigation()
 
 
 # ============================================================
-# HEADER
+# MAIN HEADER
 # ============================================================
 
 def render_header() -> None:
@@ -808,6 +815,7 @@ def render_header() -> None:
         '<div class="registry-header">',
         unsafe_allow_html=True,
     )
+
 
     col1, col2, col3 = st.columns(
         [1, 7, 2],
@@ -859,25 +867,22 @@ def render_header() -> None:
 
     with col3:
 
-        status = (
-            "System Online"
-            if database_connected
-            else "Database Attention"
-        )
+        if database_connected:
 
-        status_class = (
-            "status-online"
-            if database_connected
-            else "status-online"
-        )
+            status_text = "System Online"
+
+        else:
+
+            status_text = "Database Attention"
+
 
         st.markdown(
             f"""
 <div class="registry-status">
 
-    <div class="{status_class}">
+    <div class="status-online">
         <span class="status-dot"></span>
-        {status}
+        {status_text}
     </div>
 
     <div class="registry-version">
@@ -1047,7 +1052,7 @@ def render_overview() -> None:
 
 
     # --------------------------------------------------------
-    # Registry services
+    # Registry Services
     # --------------------------------------------------------
 
     st.divider()
@@ -1199,27 +1204,58 @@ PLACEHOLDER_PAGES = {
 
     "documents": (
         "Documents",
-        "Manage registry documents, certificates and official records."
+        (
+            "Manage Registry documents, certificates "
+            "and official records."
+        ),
     ),
 
     "verification": (
         "Verification",
-        "Verify population, civil registration and identity records."
+        (
+            "Verify population, civil registration "
+            "and identity records."
+        ),
     ),
 
     "households": (
         "Households",
-        "Manage household records and household relationships."
+        (
+            "Manage household records and "
+            "household relationships."
+        ),
     ),
 
     "statistics": (
         "Statistics",
-        "View national registry statistics and demographic summaries."
+        (
+            "View national Registry statistics "
+            "and demographic summaries."
+        ),
     ),
 
     "settings": (
         "System Settings",
-        "Configure Registry platform settings and system preferences."
+        (
+            "Configure Registry platform settings "
+            "and system preferences."
+        ),
+    ),
+
+    "reports": (
+        "Reports & Analytics",
+        (
+            "Generate operational reports, statistical "
+            "summaries and Registry analytics."
+        ),
+    ),
+
+    "administration": (
+        "Administration",
+        (
+            "Manage users, roles, permissions, "
+            "configuration and system administration."
+        ),
     ),
 }
 
@@ -1249,7 +1285,7 @@ def render_placeholder(
 
 
 # ============================================================
-# ACTIVE MODULE
+# ACTIVE PAGE
 # ============================================================
 
 active_key = (
@@ -1257,15 +1293,27 @@ active_key = (
 )
 
 
+# ------------------------------------------------------------
+# Overview
+# ------------------------------------------------------------
+
 if active_key == "overview":
 
     render_overview()
 
 
+# ------------------------------------------------------------
+# Citizens
+# ------------------------------------------------------------
+
 elif active_key == "citizens":
 
     render_citizens()
 
+
+# ------------------------------------------------------------
+# Placeholder pages
+# ------------------------------------------------------------
 
 elif active_key in PLACEHOLDER_PAGES:
 
@@ -1274,11 +1322,11 @@ elif active_key in PLACEHOLDER_PAGES:
     )
 
 
-else:
+# ------------------------------------------------------------
+# Registry modules
+# ------------------------------------------------------------
 
-    # --------------------------------------------------------
-    # Registry module
-    # --------------------------------------------------------
+else:
 
     if get_module is None:
 
@@ -1297,7 +1345,7 @@ else:
         except Exception as exc:
 
             logger.exception(
-                "Could not retrieve module '%s'.",
+                "Could not retrieve Registry module '%s'.",
                 active_key,
             )
 
@@ -1309,7 +1357,9 @@ else:
                 "Technical details"
             ):
 
-                st.exception(exc)
+                st.exception(
+                    exc
+                )
 
             module = None
 
@@ -1319,7 +1369,6 @@ else:
             st.error(
                 "The requested Registry module was not found."
             )
-
 
         else:
 
@@ -1348,10 +1397,12 @@ else:
             )
 
 
-            available = getattr(
-                module,
-                "available",
-                True,
+            available = bool(
+                getattr(
+                    module,
+                    "available",
+                    True,
+                )
             )
 
 
@@ -1395,6 +1446,8 @@ else:
 
                 except TypeError:
 
+                    # Compatibility with registries whose
+                    # render_module() expects a module object.
                     try:
 
                         render_module(
@@ -1417,7 +1470,9 @@ else:
                             "Technical details"
                         ):
 
-                            st.exception(exc)
+                            st.exception(
+                                exc
+                            )
 
                 except Exception as exc:
 
@@ -1435,7 +1490,9 @@ else:
                         "Technical details"
                     ):
 
-                        st.exception(exc)
+                        st.exception(
+                            exc
+                        )
 
 
 # ============================================================
@@ -1469,4 +1526,4 @@ st.caption(
     "South Sudan National Registry • "
     "National Population • Civil Registration • "
     "Identity • Elections • Version 1.0.0"
-        )
+    )
