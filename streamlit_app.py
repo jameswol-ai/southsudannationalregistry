@@ -545,13 +545,6 @@ st.markdown(
 
         <div class="registry-brand">
 
-            <div class="registry-emblem">
-                <img
-                    src="app/static/south_sudan_emblem.png"
-                    alt="South Sudan National Emblem"
-                />
-            </div>
-
             <div class="registry-title">
                 South Sudan National Registry
             </div>
@@ -567,6 +560,31 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+# ============================================================
+# SOUTH SUDAN EMBLEM
+# ============================================================
+
+if EMBLEM_PATH.exists():
+
+    emblem_col1, emblem_col2, emblem_col3 = st.columns(
+        [1, 1, 1]
+    )
+
+    with emblem_col2:
+
+        st.image(
+            str(EMBLEM_PATH),
+            width=78,
+        )
+
+else:
+
+    logger.warning(
+        "South Sudan emblem not found: %s",
+        EMBLEM_PATH,
+    )
 
 
 # ============================================================
