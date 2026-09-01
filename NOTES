@@ -309,3 +309,60 @@ app/administration/*
 
 app/page.tsx
 app/layout.tsx
+
+modules/
+├── registry.py
+│
+├── population/
+│   ├── __init__.py
+│   ├── ui.py
+│   └── service.py
+│
+├── civil_registration/
+│   ├── __init__.py
+│   ├── ui.py
+│   └── service.py
+│
+├── identity/
+│   ├── __init__.py
+│   ├── ui.py
+│   └── service.py
+│
+├── elections/
+│   ├── __init__.py
+│   ├── ui.py
+│   └── service.py
+│
+├── reports/
+│   ├── __init__.py
+│   └── ui.py
+│
+└── administration/
+    ├── __init__.py
+    ├── ui.py
+    └── service.py
+
+Administration
+ ├── User
+ ├── Role
+ └── Permission
+
+Identity
+ ├── Citizen
+ └── Document
+
+Elections
+ ├── Citizen
+ └── VoterRecord
+
+Civil Registration
+ ├── Citizen
+ ├── CivilEvent
+ └── Document
+
+Population
+ ├── Citizen
+ └── Household
+
+Reports
+ └── Reads from all modules
