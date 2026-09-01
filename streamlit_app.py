@@ -9,19 +9,11 @@ Application entry point:
 
     streamlit run streamlit_app.py
 
-Architecture:
-
-    Next.js AI Studio
-            |
-        Registry API
-            |
-        Service Layer
-            |
-        SQLAlchemy
-            |
-    PostgreSQL / SQLite
-            |
-        Streamlit AI Studio
+This frontend is intentionally defensive:
+- A missing/corrupt emblem cannot crash the application.
+- Database failures are reported without crashing the UI.
+- Registry modules are handled independently.
+- CRUD forms use unique Streamlit widget keys.
 """
 
 from __future__ import annotations
@@ -33,22 +25,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 import streamlit as st
-
-
-# ============================================================
-# APPLICATION CONSTANTS
-# ============================================================
-
-APP_NAME = "South Sudan National Registry"
-APP_VERSION = "1.0.0"
-APP_SUBTITLE = (
-    "National Population • Civil Registration • "
-    "Identity • Elections"
-)
-
-BASE_DIR = Path(__file__).resolve().parent
-ASSETS_DIR = BASE_DIR / "assets"
-EMBLEM_PATH = ASSETS_DIR / "south_sudan_emblem.png"
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 
 # ============================================================
@@ -56,11 +34,20 @@ EMBLEM_PATH = ASSETS_DIR / "south_sudan_emblem.png"
 # ============================================================
 
 st.set_page_config(
-    page_title=APP_NAME,
+    page_title="South Sudan National Registry",
     page_icon="SS",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+# ============================================================
+# PATHS
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
+EMBLEM_PATH = ASSETS_DIR / "south_sudan_emblem.png"
 
 
 # ============================================================
@@ -78,21 +65,21 @@ logger = logging.getLogger(
 # DATABASE IMPORTS
 # ============================================================
 
-DATABASE_AVAILABLE = False
-DATABASE_ERROR: Optional[Exception] = None
+DATABASE_AVAILABLE = True
+DATABASE_IMPORT_ERROR: Optional[Exception] = None
 
 try:
     from database.database import (
-        Base,
         SessionLocal,
-        engine,
         init_db,
     )
 
-    DATABASE_AVAILABLE = True
-
 except Exception as exc:
-    DATABASE_ERROR = exc
+    DATABASE_AVAILABLE = False
+    DATABASE_IMPORT_ERROR = exc
+
+    SessionLocal = None
+    init_db = None
 
     logger.exception(
         "Unable to import database layer."
@@ -103,48 +90,45 @@ except Exception as exc:
 # MODEL IMPORTS
 # ============================================================
 
-MODELS_AVAILABLE = False
-MODELS_ERROR: Optional[Exception] = None
-
-Citizen = None
-Household = None
-CivilEvent = None
-Document = None
-VoterRecord = None
-AdministrativeUnit = None
-AuditLog = None
+MODELS_AVAILABLE = True
+MODELS_IMPORT_ERROR: Optional[Exception] = None
 
 try:
     from models.models import (
-        Citizen,
-        Household,
-        CivilEvent,
-        Document,
-        VoterRecord,
         AdministrativeUnit,
         AuditLog,
+        Citizen,
+        CivilEvent,
+        Document,
+        Household,
+        VoterRecord,
     )
-
-    MODELS_AVAILABLE = True
 
 except Exception:
 
     try:
         from models import (
-            Citizen,
-            Household,
-            CivilEvent,
-            Document,
-            VoterRecord,
             AdministrativeUnit,
             AuditLog,
+            Citizen,
+            CivilEvent,
+            Document,
+            Household,
+            VoterRecord,
         )
-
-        MODELS_AVAILABLE = True
 
     except Exception as exc:
 
-        MODELS_ERROR = exc
+        MODELS_AVAILABLE = False
+        MODELS_IMPORT_ERROR = exc
+
+        AdministrativeUnit = None
+        AuditLog = None
+        Citizen = None
+        CivilEvent = None
+        Document = None
+        Household = None
+        VoterRecord = None
 
         logger.exception(
             "Unable to import registry models."
@@ -152,444 +136,58 @@ except Exception:
 
 
 # ============================================================
+# MODULE REGISTRY IMPORT
+# ============================================================
+
+MODULE_REGISTRY_AVAILABLE = True
+MODULE_REGISTRY_ERROR: Optional[Exception] = None
+
+try:
+
+    from modules.registry import (
+        get_available_modules,
+        get_module,
+        render_module,
+    )
+
+except Exception as exc:
+
+    MODULE_REGISTRY_AVAILABLE = False
+    MODULE_REGISTRY_ERROR = exc
+
+    get_available_modules = None
+    get_module = None
+    render_module = None
+
+    logger.warning(
+        "Optional module registry unavailable: %s",
+        exc,
+    )
+
+
+# ============================================================
 # SESSION STATE
 # ============================================================
 
-if "active_page" not in st.session_state:
-    st.session_state.active_page = "Overview"
-
-if "theme" not in st.session_state:
-    st.session_state.theme = "dark"
-
-if "database_initialized" not in st.session_state:
-    st.session_state.database_initialized = False
-
-if "database_error" not in st.session_state:
-    st.session_state.database_error = None
-
-if "notice" not in st.session_state:
-    st.session_state.notice = None
-
-
-# ============================================================
-# THEME
-# ============================================================
-
-def get_theme() -> dict[str, str]:
-    if st.session_state.theme == "light":
-
-        return {
-            "background": "#F8FAFC",
-            "surface": "#FFFFFF",
-            "surface_alt": "#F1F5F9",
-            "surface_hover": "#E2E8F0",
-            "text": "#0F172A",
-            "muted": "#64748B",
-            "border": "#CBD5E1",
-            "accent": "#15803D",
-            "accent_dark": "#166534",
-            "accent_soft": "#DCFCE7",
-            "success": "#15803D",
-            "warning": "#B45309",
-            "danger": "#B91C1C",
-            "white": "#FFFFFF",
-            "shadow": "rgba(15, 23, 42, 0.10)",
-        }
-
-    return {
-        "background": "#0B1220",
-        "surface": "#111827",
-        "surface_alt": "#172033",
-        "surface_hover": "#1E293B",
-        "text": "#F8FAFC",
-        "muted": "#94A3B8",
-        "border": "#263247",
-        "accent": "#22C55E",
-        "accent_dark": "#16A34A",
-        "accent_soft": "#14532D",
-        "success": "#22C55E",
-        "warning": "#F59E0B",
-        "danger": "#EF4444",
-        "white": "#FFFFFF",
-        "shadow": "rgba(0, 0, 0, 0.30)",
-    }
-
-
-# ============================================================
-# CSS
-# ============================================================
-
-def inject_css() -> None:
-
-    theme = get_theme()
-
-    st.markdown(
-        f"""
-        <style>
-
-        html, body, [class*="css"] {{
-            font-family:
-                Inter,
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                sans-serif;
-        }}
-
-        .stApp {{
-            background: {theme["background"]};
-            color: {theme["text"]};
-        }}
-
-        .block-container {{
-            max-width: 1500px;
-            padding-top: 1rem;
-            padding-bottom: 4rem;
-        }}
-
-        h1, h2, h3, h4, h5, h6 {{
-            color: {theme["text"]} !important;
-        }}
-
-        p, label, span {{
-            color: {theme["text"]};
-        }}
-
-        /* ====================================================
-           SIDEBAR
-           ==================================================== */
-
-        section[data-testid="stSidebar"] {{
-            background: {theme["surface"]};
-            border-right: 1px solid {theme["border"]};
-        }}
-
-        section[data-testid="stSidebar"] > div {{
-            padding-top: 1rem;
-        }}
-
-        .sidebar-brand {{
-            text-align: center;
-            padding: 10px 8px 18px;
-        }}
-
-        .sidebar-emblem {{
-            width: 58px;
-            height: 58px;
-            margin: 0 auto 12px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: {theme["accent"]};
-            color: white;
-            font-size: 22px;
-            font-weight: 900;
-            border: 3px solid rgba(255,255,255,0.20);
-        }}
-
-        .sidebar-title {{
-            font-size: 17px;
-            font-weight: 800;
-            line-height: 1.25;
-            color: {theme["text"]};
-        }}
-
-        .sidebar-subtitle {{
-            font-size: 11px;
-            line-height: 1.5;
-            color: {theme["muted"]};
-            margin-top: 6px;
-        }}
-
-        .sidebar-section {{
-            color: {theme["accent"]};
-            font-size: 11px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            margin: 18px 4px 7px;
-        }}
-
-        .sidebar-status {{
-            border: 1px solid {theme["border"]};
-            background: {theme["surface_alt"]};
-            border-radius: 12px;
-            padding: 10px;
-            margin-top: 12px;
-        }}
-
-        .status-online {{
-            color: {theme["success"]};
-            font-weight: 700;
-            font-size: 12px;
-        }}
-
-        .status-warning {{
-            color: {theme["warning"]};
-            font-weight: 700;
-            font-size: 12px;
-        }}
-
-        .status-dot {{
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: {theme["success"]};
-            margin-right: 6px;
-        }}
-
-        .status-dot-warning {{
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: {theme["warning"]};
-            margin-right: 6px;
-        }}
-
-        /* ====================================================
-           HEADER
-           ==================================================== */
-
-        .registry-header {{
-            display: flex;
-            align-items: center;
-            gap: 18px;
-            padding: 10px 4px 20px;
-            border-bottom: 1px solid {theme["border"]};
-            margin-bottom: 22px;
-        }}
-
-        .header-emblem {{
-            width: 68px;
-            height: 68px;
-            border-radius: 50%;
-            object-fit: contain;
-            flex-shrink: 0;
-        }}
-
-        .header-emblem-fallback {{
-            width: 68px;
-            height: 68px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: {theme["accent"]};
-            color: white;
-            font-size: 24px;
-            font-weight: 900;
-            flex-shrink: 0;
-        }}
-
-        .registry-title {{
-            font-size: 28px;
-            font-weight: 850;
-            line-height: 1.2;
-            color: {theme["text"]};
-        }}
-
-        .registry-subtitle {{
-            color: {theme["muted"]};
-            font-size: 13px;
-            margin-top: 6px;
-            line-height: 1.5;
-        }}
-
-        .registry-version {{
-            color: {theme["muted"]};
-            font-size: 11px;
-            margin-top: 5px;
-        }}
-
-        /* ====================================================
-           PAGE
-           ==================================================== */
-
-        .page-kicker {{
-            color: {theme["accent"]};
-            font-size: 12px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }}
-
-        .page-heading {{
-            color: {theme["text"]};
-            font-size: 25px;
-            font-weight: 850;
-            margin-top: 3px;
-        }}
-
-        .page-description {{
-            color: {theme["muted"]};
-            font-size: 14px;
-            line-height: 1.6;
-            margin-top: 5px;
-            margin-bottom: 18px;
-        }}
-
-        /* ====================================================
-           CARDS
-           ==================================================== */
-
-        .registry-card {{
-            background: {theme["surface"]};
-            border: 1px solid {theme["border"]};
-            border-radius: 15px;
-            padding: 18px;
-            margin-bottom: 14px;
-            box-shadow: 0 8px 25px {theme["shadow"]};
-        }}
-
-        .kpi-card {{
-            background: {theme["surface"]};
-            border: 1px solid {theme["border"]};
-            border-radius: 15px;
-            padding: 17px;
-            min-height: 125px;
-            box-shadow: 0 8px 25px {theme["shadow"]};
-        }}
-
-        .kpi-label {{
-            color: {theme["muted"]};
-            font-size: 12px;
-            font-weight: 700;
-        }}
-
-        .kpi-value {{
-            color: {theme["text"]};
-            font-size: 30px;
-            font-weight: 850;
-            margin-top: 8px;
-        }}
-
-        .kpi-description {{
-            color: {theme["muted"]};
-            font-size: 11px;
-            margin-top: 5px;
-        }}
-
-        .module-name {{
-            color: {theme["text"]};
-            font-size: 16px;
-            font-weight: 800;
-        }}
-
-        .module-description {{
-            color: {theme["muted"]};
-            font-size: 13px;
-            line-height: 1.5;
-            margin-top: 5px;
-        }}
-
-        /* ====================================================
-           BUTTONS
-           ==================================================== */
-
-        .stButton > button {{
-            border-radius: 9px;
-            min-height: 40px;
-            font-weight: 650;
-        }}
-
-        /* ====================================================
-           INPUTS
-           ==================================================== */
-
-        input,
-        textarea {{
-            border-radius: 9px !important;
-        }}
-
-        div[data-baseweb="select"] > div {{
-            border-radius: 9px;
-        }}
-
-        /* ====================================================
-           FOOTER
-           ==================================================== */
-
-        .registry-footer {{
-            color: {theme["muted"]};
-            font-size: 11px;
-            line-height: 1.5;
-        }}
-
-        /* ====================================================
-           STREAMLIT CHROME
-           ==================================================== */
-
-        #MainMenu {{
-            visibility: hidden;
-        }}
-
-        footer {{
-            visibility: hidden;
-        }}
-
-        header[data-testid="stHeader"] {{
-            background: transparent;
-        }}
-
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-inject_css()
-
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def safe_uuid() -> str:
-    return str(uuid.uuid4())
-
-
-def safe_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value)
-
-
-def show_notice() -> None:
-
-    notice = st.session_state.get("notice")
-
-    if not notice:
-        return
-
-    notice_type, message = notice
-
-    if notice_type == "success":
-        st.success(message)
-
-    elif notice_type == "warning":
-        st.warning(message)
-
-    elif notice_type == "error":
-        st.error(message)
-
-    else:
-        st.info(message)
-
-    st.session_state.notice = None
-
-
-def set_notice(
-    message: str,
-    notice_type: str = "success",
-) -> None:
-
-    st.session_state.notice = (
-        notice_type,
-        message,
-    )
+DEFAULT_SESSION_STATE = {
+    "active_page": "overview",
+    "dark_mode": True,
+    "database_ready": False,
+    "database_error": None,
+    "editing_citizen_id": None,
+    "editing_household_id": None,
+    "editing_civil_event_id": None,
+    "editing_document_id": None,
+    "editing_voter_id": None,
+    "editing_admin_unit_id": None,
+}
+
+
+for state_key, default_value in DEFAULT_SESSION_STATE.items():
+
+    if state_key not in st.session_state:
+
+        st.session_state[state_key] = default_value
 
 
 # ============================================================
@@ -598,18 +196,35 @@ def set_notice(
 
 @st.cache_resource
 def initialize_database() -> tuple[bool, Optional[str]]:
+    """
+    Initialize the database once per Streamlit process.
+
+    Returns:
+        (success, error_message)
+    """
 
     if not DATABASE_AVAILABLE:
+
         return (
             False,
-            str(DATABASE_ERROR),
+            str(DATABASE_IMPORT_ERROR),
+        )
+
+    if init_db is None:
+
+        return (
+            False,
+            "Database initialization function is unavailable.",
         )
 
     try:
 
         init_db()
 
-        return True, None
+        return (
+            True,
+            None,
+        )
 
     except Exception as exc:
 
@@ -623,476 +238,631 @@ def initialize_database() -> tuple[bool, Optional[str]]:
         )
 
 
-database_ok = False
+database_ready, database_error = (
+    initialize_database()
+)
 
-if DATABASE_AVAILABLE:
-
-    database_ok, db_error = initialize_database()
-
-    st.session_state.database_initialized = (
-        database_ok
-    )
-
-    st.session_state.database_error = db_error
-
-else:
-
-    database_ok = False
+st.session_state.database_ready = database_ready
+st.session_state.database_error = database_error
 
 
 # ============================================================
 # DATABASE SESSION
 # ============================================================
 
-def get_session():
+def get_db():
+    """
+    Return a new SQLAlchemy database session.
+
+    The caller is responsible for closing it.
+    """
 
     if not DATABASE_AVAILABLE:
         return None
 
-    try:
-        return SessionLocal()
-
-    except Exception as exc:
-
-        logger.exception(
-            "Unable to create database session."
-        )
-
+    if SessionLocal is None:
         return None
+
+    return SessionLocal()
 
 
 # ============================================================
-# QUERY HELPERS
+# UTILITY FUNCTIONS
 # ============================================================
 
-def count_records(model: Any) -> int:
+def new_id() -> str:
+    """
+    Generate a registry UUID.
+    """
 
-    if not database_ok or model is None:
+    return str(uuid.uuid4())
+
+
+def safe_text(value: Any) -> str:
+    """
+    Convert values safely to text.
+    """
+
+    if value is None:
+        return ""
+
+    return str(value)
+
+
+def calculate_age(
+    birth_date: Optional[date],
+) -> int:
+    """
+    Calculate age from date of birth.
+    """
+
+    if not birth_date:
         return 0
 
-    session = get_session()
+    today = date.today()
 
-    if session is None:
-        return 0
+    age = (
+        today.year
+        - birth_date.year
+        - (
+            (today.month, today.day)
+            < (birth_date.month, birth_date.day)
+        )
+    )
+
+    return max(age, 0)
+
+
+def commit_session(db) -> tuple[bool, Optional[str]]:
+    """
+    Commit a database transaction safely.
+    """
 
     try:
 
-        return int(
-            session.query(model).count()
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Unable to count %s.",
-            getattr(
-                model,
-                "__name__",
-                "records",
-            ),
-        )
-
-        return 0
-
-    finally:
-
-        session.close()
-
-
-def get_records(
-    model: Any,
-    limit: int = 500,
-) -> list[Any]:
-
-    if not database_ok or model is None:
-        return []
-
-    session = get_session()
-
-    if session is None:
-        return []
-
-    try:
-
-        return (
-            session.query(model)
-            .limit(limit)
-            .all()
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Unable to retrieve records."
-        )
-
-        return []
-
-    finally:
-
-        session.close()
-
-
-def get_record(
-    model: Any,
-    record_id: str,
-) -> Optional[Any]:
-
-    if not database_ok or model is None:
-        return None
-
-    session = get_session()
-
-    if session is None:
-        return None
-
-    try:
-
-        return session.get(
-            model,
-            record_id,
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Unable to retrieve record."
-        )
-
-        return None
-
-    finally:
-
-        session.close()
-
-
-def delete_record(
-    model: Any,
-    record_id: str,
-) -> tuple[bool, Optional[str]]:
-
-    if not database_ok or model is None:
-        return False, "Database unavailable."
-
-    session = get_session()
-
-    if session is None:
-        return False, "Database session unavailable."
-
-    try:
-
-        record = session.get(
-            model,
-            record_id,
-        )
-
-        if record is None:
-            return False, "Record not found."
-
-        session.delete(record)
-        session.commit()
+        db.commit()
 
         return True, None
 
-    except Exception as exc:
+    except IntegrityError as exc:
 
-        session.rollback()
+        db.rollback()
 
         logger.exception(
-            "Unable to delete record."
+            "Database integrity error."
         )
 
-        return False, str(exc)
+        return (
+            False,
+            f"Database constraint error: {exc}",
+        )
+
+    except Exception as exc:
+
+        db.rollback()
+
+        logger.exception(
+            "Database transaction failed."
+        )
+
+        return (
+            False,
+            str(exc),
+        )
+
+
+def model_columns(model) -> list[str]:
+    """
+    Return SQLAlchemy column names.
+    """
+
+    try:
+
+        return [
+            column.name
+            for column in model.__table__.columns
+        ]
+
+    except Exception:
+
+        return []
+
+
+def count_records(model) -> int:
+    """
+    Count records safely.
+    """
+
+    if not database_ready or model is None:
+        return 0
+
+    db = get_db()
+
+    if db is None:
+        return 0
+
+    try:
+
+        result = db.execute(
+            select(func.count()).select_from(model)
+        )
+
+        return int(result.scalar() or 0)
+
+    except Exception as exc:
+
+        logger.warning(
+            "Unable to count %s: %s",
+            getattr(model, "__name__", "records"),
+            exc,
+        )
+
+        return 0
 
     finally:
 
-        session.close()
+        db.close()
+
+
+def get_record(model, record_id: str):
+    """
+    Retrieve a single record by primary key.
+    """
+
+    if not database_ready or model is None:
+        return None
+
+    db = get_db()
+
+    if db is None:
+        return None
+
+    try:
+
+        return db.get(
+            model,
+            record_id,
+        )
+
+    except Exception as exc:
+
+        logger.warning(
+            "Unable to retrieve record: %s",
+            exc,
+        )
+
+        return None
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# THEME
+# ============================================================
+
+def get_theme() -> dict[str, str]:
+
+    if st.session_state.dark_mode:
+
+        return {
+            "background": "#0B1220",
+            "surface": "#111827",
+            "surface_alt": "#172033",
+            "surface_hover": "#1E293B",
+            "text": "#F8FAFC",
+            "muted": "#94A3B8",
+            "border": "#263247",
+            "accent": "#16A34A",
+            "accent_dark": "#15803D",
+            "accent_soft": "#14532D",
+            "danger": "#DC2626",
+            "warning": "#D97706",
+            "success": "#16A34A",
+        }
+
+    return {
+        "background": "#F8FAFC",
+        "surface": "#FFFFFF",
+        "surface_alt": "#F1F5F9",
+        "surface_hover": "#E2E8F0",
+        "text": "#0F172A",
+        "muted": "#64748B",
+        "border": "#E2E8F0",
+        "accent": "#15803D",
+        "accent_dark": "#166534",
+        "accent_soft": "#DCFCE7",
+        "danger": "#DC2626",
+        "warning": "#D97706",
+        "success": "#15803D",
+    }
+
+
+# ============================================================
+# CSS
+# ============================================================
+
+def inject_css() -> None:
+
+    theme = get_theme()
+
+    st.markdown(
+        f"""
+<style>
+
+html, body, [class*="css"] {{
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}}
+
+.stApp {{
+    background: {theme["background"]};
+    color: {theme["text"]};
+}}
+
+.block-container {{
+    max-width: 1500px;
+    padding-top: 1rem;
+    padding-bottom: 4rem;
+}}
+
+h1, h2, h3, h4, h5, h6 {{
+    color: {theme["text"]} !important;
+}}
+
+p, label, span {{
+    color: {theme["text"]};
+}}
+
+
+/* ==========================================================
+   HEADER
+   ========================================================== */
+
+.registry-header {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 12px 10px 18px;
+    margin-bottom: 10px;
+}}
+
+.header-emblem-fallback {{
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: {theme["accent"]};
+    color: #FFFFFF;
+    font-size: 25px;
+    font-weight: 900;
+    border: 3px solid {theme["accent_soft"]};
+    box-shadow: 0 5px 18px rgba(0,0,0,.20);
+}}
+
+.registry-brand {{
+    text-align: left;
+}}
+
+.registry-title {{
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1.2;
+    color: {theme["text"]};
+}}
+
+.registry-subtitle {{
+    color: {theme["muted"]};
+    font-size: 13px;
+    line-height: 1.5;
+    margin-top: 6px;
+}}
+
+.registry-version {{
+    color: {theme["muted"]};
+    font-size: 12px;
+    margin-top: 5px;
+}}
+
+
+/* ==========================================================
+   STATUS
+   ========================================================== */
+
+.status-online,
+.status-warning {{
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 700;
+    font-size: 13px;
+}}
+
+.status-online {{
+    color: {theme["success"]};
+}}
+
+.status-warning {{
+    color: {theme["warning"]};
+}}
+
+.status-dot,
+.status-dot-warning {{
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+}}
+
+.status-dot {{
+    background: {theme["success"]};
+}}
+
+.status-dot-warning {{
+    background: {theme["warning"]};
+}}
+
+
+/* ==========================================================
+   SIDEBAR
+   ========================================================== */
+
+section[data-testid="stSidebar"] {{
+    background: {theme["surface"]};
+    border-right: 1px solid {theme["border"]};
+}}
+
+.sidebar-title {{
+    font-size: 19px;
+    font-weight: 800;
+    color: {theme["text"]};
+    line-height: 1.3;
+}}
+
+.sidebar-subtitle {{
+    color: {theme["muted"]};
+    font-size: 11px;
+    line-height: 1.5;
+    margin-top: 6px;
+}}
+
+
+/* ==========================================================
+   DASHBOARD
+   ========================================================== */
+
+.overview-card {{
+    background: {theme["surface"]};
+    border: 1px solid {theme["border"]};
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 18px;
+}}
+
+.registry-kicker {{
+    color: {theme["accent"]};
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin-bottom: 6px;
+}}
+
+.registry-heading {{
+    color: {theme["text"]};
+    font-size: 23px;
+    font-weight: 800;
+    line-height: 1.3;
+}}
+
+.registry-description {{
+    color: {theme["muted"]};
+    font-size: 14px;
+    line-height: 1.6;
+    margin-top: 8px;
+    max-width: 1000px;
+}}
+
+
+/* ==========================================================
+   KPI
+   ========================================================== */
+
+.kpi-card {{
+    background: {theme["surface"]};
+    border: 1px solid {theme["border"]};
+    border-radius: 15px;
+    padding: 18px;
+    min-height: 125px;
+}}
+
+.kpi-label {{
+    color: {theme["muted"]};
+    font-size: 12px;
+    font-weight: 700;
+}}
+
+.kpi-value {{
+    color: {theme["text"]};
+    font-size: 28px;
+    font-weight: 850;
+    margin-top: 8px;
+}}
+
+.kpi-description {{
+    color: {theme["muted"]};
+    font-size: 12px;
+    margin-top: 4px;
+}}
+
+
+/* ==========================================================
+   MODULE CARDS
+   ========================================================== */
+
+.module-card {{
+    background: {theme["surface"]};
+    border: 1px solid {theme["border"]};
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 12px;
+}}
+
+.module-name {{
+    color: {theme["text"]};
+    font-size: 16px;
+    font-weight: 750;
+}}
+
+.module-description {{
+    color: {theme["muted"]};
+    font-size: 13px;
+    line-height: 1.5;
+    margin-top: 5px;
+}}
+
+
+/* ==========================================================
+   BUTTONS
+   ========================================================== */
+
+.stButton > button {{
+    border-radius: 9px;
+    min-height: 40px;
+    font-weight: 650;
+}}
+
+
+/* ==========================================================
+   METRICS
+   ========================================================== */
+
+div[data-testid="stMetric"] {{
+    background: {theme["surface"]};
+    border: 1px solid {theme["border"]};
+    border-radius: 14px;
+    padding: 14px;
+}}
+
+div[data-testid="stMetricLabel"] {{
+    color: {theme["muted"]} !important;
+}}
+
+div[data-testid="stMetricValue"] {{
+    color: {theme["text"]} !important;
+}}
+
+
+/* ==========================================================
+   TABLES
+   ========================================================== */
+
+div[data-testid="stDataFrame"] {{
+    border-radius: 12px;
+    overflow: hidden;
+}}
+
+
+/* ==========================================================
+   STREAMLIT CHROME
+   ========================================================== */
+
+#MainMenu {{
+    visibility: hidden;
+}}
+
+footer {{
+    visibility: hidden;
+}}
+
+header[data-testid="stHeader"] {{
+    background: transparent;
+}}
+
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+inject_css()
 
 
 # ============================================================
 # HEADER
 # ============================================================
 
-def render_header() -> None:
+st.markdown(
+    """
+<div class="registry-header">
 
-    emblem_html = ""
+    <div class="header-emblem-fallback">
+        SS
+    </div>
 
-    if EMBLEM_PATH.exists():
+    <div class="registry-brand">
 
-        try:
-
-            from PIL import Image
-
-            with Image.open(EMBLEM_PATH) as image:
-                image.verify()
-
-            emblem_html = """
-                <div class="header-emblem-fallback">
-                    SS
-                </div>
-            """
-
-            # Streamlit renders the actual image below the header.
-
-        except Exception:
-
-            logger.warning(
-                "Invalid South Sudan emblem: %s",
-                EMBLEM_PATH,
-            )
-
-    else:
-
-        emblem_html = """
-            <div class="header-emblem-fallback">
-                SS
-            </div>
-        """
-
-    st.markdown(
-        f"""
-        <div class="registry-header">
-
-            {emblem_html}
-
-            <div>
-
-                <div class="registry-title">
-                    {APP_NAME}
-                </div>
-
-                <div class="registry-subtitle">
-                    {APP_SUBTITLE}
-                </div>
-
-                <div class="registry-version">
-                    Registry Platform • Version {APP_VERSION}
-                </div>
-
-            </div>
-
+        <div class="registry-title">
+            South Sudan National Registry
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-    # Display the real image only after validating it.
-    if EMBLEM_PATH.exists():
+        <div class="registry-subtitle">
+            National Population • Civil Registration •
+            Identity • Elections
+        </div>
 
-        try:
+        <div class="registry-version">
+            Registry Platform • Version 1.0.0
+        </div>
 
-            from PIL import Image
+    </div>
 
-            with Image.open(EMBLEM_PATH) as image:
-                image.verify()
-
-            # A valid image can safely be passed to Streamlit.
-            # It is intentionally not used as page_icon.
-            pass
-
-        except Exception:
-            pass
+</div>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-def sidebar_navigation() -> str:
+def sidebar_navigation() -> None:
 
     with st.sidebar:
 
-        # ----------------------------------------------------
-        # BRAND
-        # ----------------------------------------------------
-
         st.markdown(
             """
-            <div class="sidebar-brand">
+<div class="sidebar-title">
+    South Sudan National Registry
+</div>
 
-                <div class="sidebar-emblem">
-                    SS
-                </div>
-
-                <div class="sidebar-title">
-                    South Sudan National Registry
-                </div>
-
-                <div class="sidebar-subtitle">
-                    National Population • Civil Registration •
-                    Identity • Elections
-                </div>
-
-            </div>
+<div class="sidebar-subtitle">
+    National Population • Civil Registration •
+    Identity • Elections
+</div>
             """,
             unsafe_allow_html=True,
         )
 
-        # ----------------------------------------------------
-        # NAVIGATION
-        # ----------------------------------------------------
+        st.divider()
 
-        st.markdown(
-            '<div class="sidebar-section">Registry</div>',
-            unsafe_allow_html=True,
-        )
-
-        registry_pages = [
-            "Overview",
-            "Citizens",
-            "Households",
-            "Civil Registration",
-            "Identity Management",
-            "Elections",
-            "Administrative Units",
-        ]
-
-        selected_registry = st.radio(
-            "Registry",
-            registry_pages,
-            index=(
-                registry_pages.index(
-                    st.session_state.active_page
-                )
-                if st.session_state.active_page
-                in registry_pages
-                else 0
-            ),
-            key="sidebar_registry_navigation",
-            label_visibility="collapsed",
-        )
-
-        st.markdown(
-            '<div class="sidebar-section">Operations</div>',
-            unsafe_allow_html=True,
-        )
-
-        operations_pages = [
-            "Reports & Analytics",
-            "Verification",
-            "Documents",
-        ]
-
-        selected_operations = st.radio(
-            "Operations",
-            operations_pages,
-            index=(
-                operations_pages.index(
-                    st.session_state.active_page
-                )
-                if st.session_state.active_page
-                in operations_pages
-                else 0
-            ),
-            key="sidebar_operations_navigation",
-            label_visibility="collapsed",
-        )
-
-        st.markdown(
-            '<div class="sidebar-section">Administration</div>',
-            unsafe_allow_html=True,
-        )
-
-        administration_pages = [
-            "Administration",
-            "Audit Log",
-        ]
-
-        selected_administration = st.radio(
-            "Administration",
-            administration_pages,
-            index=(
-                administration_pages.index(
-                    st.session_state.active_page
-                )
-                if st.session_state.active_page
-                in administration_pages
-                else 0
-            ),
-            key="sidebar_administration_navigation",
-            label_visibility="collapsed",
-        )
-
-        st.markdown(
-            '<div class="sidebar-section">Other Features</div>',
-            unsafe_allow_html=True,
-        )
-
-        other_pages = [
-            "System Status",
-            "Settings",
-        ]
-
-        selected_other = st.radio(
-            "Other Features",
-            other_pages,
-            index=(
-                other_pages.index(
-                    st.session_state.active_page
-                )
-                if st.session_state.active_page
-                in other_pages
-                else 0
-            ),
-            key="sidebar_other_navigation",
-            label_visibility="collapsed",
-        )
-
-        # ----------------------------------------------------
-        # DETERMINE SELECTED PAGE
-        # ----------------------------------------------------
-
-        current = st.session_state.active_page
-
-        # Radio controls each have their own key.
-        # Only the group containing the current page is authoritative.
-        all_pages = (
-            registry_pages
-            + operations_pages
-            + administration_pages
-            + other_pages
-        )
-
-        candidates = [
-            selected_registry,
-            selected_operations,
-            selected_administration,
-            selected_other,
-        ]
-
-        for candidate in candidates:
-
-            if candidate in all_pages:
-
-                # Determine whether candidate belongs to
-                # the navigation group that currently owns
-                # the selected page.
-                if candidate != current:
-
-                    current = candidate
-
-        # ----------------------------------------------------
-        # DATABASE STATUS
-        # ----------------------------------------------------
-
-        st.markdown(
-            '<div class="sidebar-section">System</div>',
-            unsafe_allow_html=True,
-        )
-
-        if database_ok:
+        if database_ready:
 
             st.markdown(
                 """
-                <div class="sidebar-status">
-                    <div class="status-online">
-                        <span class="status-dot"></span>
-                        System Online
-                    </div>
-                    <div class="sidebar-subtitle">
-                        Database connected
-                    </div>
-                </div>
+<div class="status-online">
+    <span class="status-dot"></span>
+    System Online
+</div>
                 """,
                 unsafe_allow_html=True,
             )
@@ -1101,41 +871,96 @@ def sidebar_navigation() -> str:
 
             st.markdown(
                 """
-                <div class="sidebar-status">
-                    <div class="status-warning">
-                        <span class="status-dot-warning"></span>
-                        Database Attention
-                    </div>
-                    <div class="sidebar-subtitle">
-                        Registry interface available
-                    </div>
-                </div>
+<div class="status-warning">
+    <span class="status-dot-warning"></span>
+    Database Attention
+</div>
                 """,
                 unsafe_allow_html=True,
             )
 
-        st.markdown(
-            "",
+            st.warning(
+                "Database Attention Required"
+            )
+
+        st.divider()
+
+        pages = {
+            "Registry": [
+                ("overview", "Overview"),
+                ("citizens", "Citizens"),
+                ("households", "Households"),
+                ("civil_registration", "Civil Registration"),
+                ("identity", "Identity Management"),
+                ("elections", "Elections"),
+            ],
+            "Operations": [
+                (
+                    "administrative_units",
+                    "Administrative Units",
+                ),
+            ],
+            "Reports & Analytics": [
+                ("reports", "Reports & Analytics"),
+            ],
+            "Administration": [
+                ("audit_logs", "Audit Logs"),
+                ("system", "System Administration"),
+            ],
+            "Other Features": [
+                ("module_registry", "Module Registry"),
+            ],
+        }
+
+        for section_name, section_pages in pages.items():
+
+            st.markdown(
+                f"**{section_name}**"
+            )
+
+            for page_key, page_label in section_pages:
+
+                is_current = (
+                    st.session_state.active_page
+                    == page_key
+                )
+
+                button_label = (
+                    f"● {page_label}"
+                    if is_current
+                    else page_label
+                )
+
+                if st.button(
+                    button_label,
+                    key=f"sidebar_{page_key}",
+                    use_container_width=True,
+                ):
+
+                    st.session_state.active_page = (
+                        page_key
+                    )
+
+                    st.rerun()
+
+        st.divider()
+
+        st.markdown("**Appearance**")
+
+        theme_label = (
+            "Use Light Mode"
+            if st.session_state.dark_mode
+            else "Use Dark Mode"
         )
 
-        # ----------------------------------------------------
-        # THEME
-        # ----------------------------------------------------
-
         if st.button(
-            (
-                "Use Light Theme"
-                if st.session_state.theme == "dark"
-                else "Use Dark Theme"
-            ),
+            theme_label,
             key="sidebar_theme_toggle",
             use_container_width=True,
         ):
 
-            st.session_state.theme = (
-                "light"
-                if st.session_state.theme == "dark"
-                else "dark"
+            st.session_state.dark_mode = (
+                not st.session_state.dark_mode
             )
 
             st.rerun()
@@ -1148,106 +973,106 @@ def sidebar_navigation() -> str:
 
             st.rerun()
 
-        st.markdown(
-            f"""
-            <div class="sidebar-status">
-                <div class="sidebar-subtitle">
-                    Registry Platform
-                </div>
-                <div class="sidebar-subtitle">
-                    Version {APP_VERSION}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+
+sidebar_navigation()
+
+
+# ============================================================
+# GENERIC DATA TABLE
+# ============================================================
+
+def show_records(
+    model,
+    title: str,
+    columns: list[str],
+    limit: int = 100,
+) -> list[Any]:
+
+    if not database_ready:
+
+        st.warning(
+            "The database is not connected."
         )
 
-    return current
-
-
-# ============================================================
-# FIELD HELPERS
-# ============================================================
-
-def model_columns(model: Any) -> list[str]:
+        return []
 
     if model is None:
+
+        st.error(
+            f"{title} model is unavailable."
+        )
+
+        return []
+
+    db = get_db()
+
+    if db is None:
+
+        st.error(
+            "Unable to create a database session."
+        )
+
         return []
 
     try:
 
-        return [
-            column.name
-            for column
-            in model.__table__.columns
-        ]
-
-    except Exception:
-
-        return []
-
-
-def model_value(
-    record: Any,
-    field_name: str,
-    default: Any = None,
-) -> Any:
-
-    try:
-        return getattr(
-            record,
-            field_name,
-            default,
+        result = db.execute(
+            select(model).limit(limit)
         )
 
-    except Exception:
-        return default
-
-
-def field_exists(
-    model: Any,
-    field_name: str,
-) -> bool:
-
-    return field_name in model_columns(model)
-
-
-# ============================================================
-# GENERIC DELETE CONFIRMATION
-# ============================================================
-
-def render_delete_button(
-    model: Any,
-    record_id: str,
-    label: str = "Delete",
-) -> None:
-
-    if st.button(
-        label,
-        key=f"delete_{model.__tablename__}_{record_id}",
-        use_container_width=True,
-    ):
-
-        success, error = delete_record(
-            model,
-            record_id,
+        records = list(
+            result.scalars().all()
         )
 
-        if success:
+        rows = []
 
-            set_notice(
-                "Record deleted successfully.",
-                "success",
+        for record in records:
+
+            row = {}
+
+            for column in columns:
+
+                row[column] = getattr(
+                    record,
+                    column,
+                    None,
+                )
+
+            rows.append(row)
+
+        if rows:
+
+            st.dataframe(
+                rows,
+                use_container_width=True,
+                hide_index=True,
             )
-
-            st.rerun()
 
         else:
 
-            st.error(
-                error
-                or "Unable to delete record."
+            st.info(
+                f"No {title.lower()} records have been registered."
             )
+
+        return records
+
+    except Exception as exc:
+
+        st.error(
+            f"Unable to load {title.lower()}."
+        )
+
+        with st.expander(
+            "Technical details"
+        ):
+
+            st.exception(exc)
+
+        return []
+
+    finally:
+
+        db.close()
 
 
 # ============================================================
@@ -1258,159 +1083,133 @@ def render_overview() -> None:
 
     st.markdown(
         """
-        <div class="page-kicker">
-            South Sudan National Registry
-        </div>
+<div class="overview-card">
 
-        <div class="page-heading">
-            National Registry Overview
-        </div>
+    <div class="registry-kicker">
+        South Sudan National Registry
+    </div>
 
-        <div class="page-description">
-            Centralized management platform for national
-            population records, civil registration,
-            identity management, households and
-            electoral registration.
-        </div>
+    <div class="registry-heading">
+        National Registry Overview
+    </div>
+
+    <div class="registry-description">
+        Centralized management platform for national population
+        records, civil registration, identity management,
+        households and electoral registration.
+    </div>
+
+</div>
         """,
         unsafe_allow_html=True,
     )
 
-    # --------------------------------------------------------
-    # KPIs
-    # --------------------------------------------------------
+    population_count = count_records(
+        Citizen
+    )
 
-    population_count = count_records(Citizen)
-    civil_count = count_records(CivilEvent)
-    identity_count = count_records(Document)
-    election_count = count_records(VoterRecord)
+    civil_count = count_records(
+        CivilEvent
+    )
 
-    c1, c2, c3, c4 = st.columns(4)
+    identity_count = count_records(
+        Document
+    )
 
-    with c1:
+    election_count = count_records(
+        VoterRecord
+    )
 
-        st.markdown(
-            f"""
-            <div class="kpi-card">
+    columns = st.columns(4)
 
-                <div class="kpi-label">
-                    Registered Population
-                </div>
+    kpis = [
+        (
+            "Registered Population",
+            population_count,
+            "Population records",
+        ),
+        (
+            "Civil Records",
+            civil_count,
+            "Birth, death and civil events",
+        ),
+        (
+            "Identity Records",
+            identity_count,
+            "National identity records",
+        ),
+        (
+            "Election Records",
+            election_count,
+            "Electoral records",
+        ),
+    ]
 
-                <div class="kpi-value">
-                    {population_count:,}
-                </div>
+    for column, (
+        label,
+        value,
+        description,
+    ) in zip(columns, kpis):
 
-                <div class="kpi-description">
-                    Population records
-                </div>
+        with column:
 
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            st.markdown(
+                f"""
+<div class="kpi-card">
 
-    with c2:
+    <div class="kpi-label">
+        {label}
+    </div>
 
-        st.markdown(
-            f"""
-            <div class="kpi-card">
+    <div class="kpi-value">
+        {value:,}
+    </div>
 
-                <div class="kpi-label">
-                    Civil Records
-                </div>
+    <div class="kpi-description">
+        {description}
+    </div>
 
-                <div class="kpi-value">
-                    {civil_count:,}
-                </div>
-
-                <div class="kpi-description">
-                    Birth, death and civil events
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with c3:
-
-        st.markdown(
-            f"""
-            <div class="kpi-card">
-
-                <div class="kpi-label">
-                    Identity Records
-                </div>
-
-                <div class="kpi-value">
-                    {identity_count:,}
-                </div>
-
-                <div class="kpi-description">
-                    National identity records
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with c4:
-
-        st.markdown(
-            f"""
-            <div class="kpi-card">
-
-                <div class="kpi-label">
-                    Election Records
-                </div>
-
-                <div class="kpi-value">
-                    {election_count:,}
-                </div>
-
-                <div class="kpi-description">
-                    Electoral records
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.divider()
 
-    # --------------------------------------------------------
-    # SERVICES
-    # --------------------------------------------------------
-
-    st.subheader("Registry Services")
+    st.subheader(
+        "Registry Services"
+    )
 
     services = [
         (
             "Population Registry",
             "Manage national population records, households, persons and demographic information.",
+            "citizens",
         ),
         (
             "Elections",
             "Manage electoral registration, voter records and election administration.",
+            "elections",
         ),
         (
             "Civil Registration",
             "Register births, deaths, marriages, certificates and other civil events.",
+            "civil_registration",
         ),
         (
             "Reports & Analytics",
             "Generate operational reports, statistical summaries and Registry analytics.",
+            "reports",
         ),
         (
             "Identity Management",
             "Manage national identity registration, identification records and identity services.",
+            "identity",
         ),
         (
             "Administration",
-            "Manage users, roles, permissions, configuration and system administration.",
+            "Manage system administration, audit records and registry configuration.",
+            "system",
         ),
     ]
 
@@ -1419,241 +1218,127 @@ def render_overview() -> None:
     for index, (
         name,
         description,
+        page_key,
     ) in enumerate(services):
 
         with service_columns[index % 2]:
 
             st.markdown(
                 f"""
-                <div class="registry-card">
+<div class="module-card">
 
-                    <div class="module-name">
-                        {name}
-                    </div>
+    <div class="module-name">
+        {name}
+    </div>
 
-                    <div class="module-description">
-                        {description}
-                    </div>
+    <div class="module-description">
+        {description}
+    </div>
 
-                </div>
+</div>
                 """,
                 unsafe_allow_html=True,
             )
 
-    # --------------------------------------------------------
-    # SYSTEM STATUS
-    # --------------------------------------------------------
-
-    st.subheader("System Status")
-
-    if database_ok:
-
-        st.success(
-            "Registry interface and database are available."
-        )
-
-    else:
-
-        st.warning(
-            "Registry interface is available, but the database "
-            "is not currently connected."
-        )
-
-        if st.session_state.database_error:
-
-            with st.expander(
-                "Database technical details"
+            if st.button(
+                f"Open {name}",
+                key=f"overview_open_{page_key}",
+                use_container_width=True,
             ):
 
-                st.code(
-                    st.session_state.database_error
+                st.session_state.active_page = (
+                    page_key
                 )
+
+                st.rerun()
+
+    st.divider()
+
+    st.subheader(
+        "System Status"
+    )
+
+    status_col1, status_col2 = st.columns(2)
+
+    with status_col1:
+
+        if database_ready:
+
+            st.success(
+                "Database Connected"
+            )
+
+        else:
+
+            st.warning(
+                "Database Attention Required"
+            )
+
+    with status_col2:
+
+        st.success(
+            "Registry Interface Available"
+        )
+
+    if not database_ready:
+
+        with st.expander(
+            "Database technical details"
+        ):
+
+            st.code(
+                database_error
+                or "Unknown database error."
+            )
 
 
 # ============================================================
 # CITIZENS
 # ============================================================
 
-def render_citizens() -> None:
-
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Population Registry
-        </div>
-
-        <div class="page-heading">
-            Citizens
-        </div>
-
-        <div class="page-description">
-            Citizen population records and citizen registry management.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if Citizen is None:
-
-        st.error(
-            "Citizen model is unavailable."
-        )
-
-        return
-
-    tab_list, tab_add = st.tabs(
-        [
-            "Citizen Records",
-            "Register Citizen",
-        ]
-    )
-
-    with tab_add:
-
-        render_citizen_form()
-
-    with tab_list:
-
-        records = get_records(
-            Citizen,
-            limit=1000,
-        )
-
-        search = st.text_input(
-            "Search citizens",
-            placeholder=(
-                "Search by name, national ID, phone or location..."
-            ),
-            key="citizen_search",
-        )
-
-        filtered = []
-
-        search_lower = search.lower().strip()
-
-        for record in records:
-
-            if not search_lower:
-
-                filtered.append(record)
-
-                continue
-
-            haystack = " ".join(
-                [
-                    safe_text(
-                        model_value(
-                            record,
-                            "full_name",
-                        )
-                    ),
-                    safe_text(
-                        model_value(
-                            record,
-                            "national_id",
-                        )
-                    ),
-                    safe_text(
-                        model_value(
-                            record,
-                            "phone_number",
-                        )
-                    ),
-                    safe_text(
-                        model_value(
-                            record,
-                            "state_or_region",
-                        )
-                    ),
-                    safe_text(
-                        model_value(
-                            record,
-                            "county_or_payam",
-                        )
-                    ),
-                ]
-            ).lower()
-
-            if search_lower in haystack:
-                filtered.append(record)
-
-        st.caption(
-            f"{len(filtered):,} citizen record(s)"
-        )
-
-        for record in filtered[:200]:
-
-            with st.expander(
-                f"{safe_text(record.full_name)}"
-                f" — {safe_text(record.national_id) or 'No National ID'}"
-            ):
-
-                render_citizen_record(
-                    record
-                )
-
-
-# ============================================================
-# CITIZEN FORM
-# ============================================================
-
-def render_citizen_form(
-    record: Optional[Any] = None,
+def citizen_form(
+    existing: Optional[Citizen] = None,
 ) -> None:
 
-    editing = record is not None
+    editing = existing is not None
 
-    prefix = (
-        f"edit_citizen_{record.id}"
-        if editing
-        else "new_citizen"
-    )
-
-    st.markdown(
-        "### Edit Citizen"
+    st.subheader(
+        "Edit Citizen"
         if editing
         else "Register Citizen"
     )
 
     with st.form(
-        key=f"{prefix}_form",
+        key=(
+            "citizen_edit_form"
+            if editing
+            else "citizen_create_form"
+        )
     ):
 
-        c1, c2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-        with c1:
+        with col1:
 
             full_name = st.text_input(
-                "Full name *",
+                "Full Name",
                 value=safe_text(
-                    model_value(
-                        record,
-                        "full_name",
-                    )
+                    getattr(existing, "full_name", "")
                 ),
-                key=f"{prefix}_full_name",
             )
 
             national_id = st.text_input(
                 "National ID",
                 value=safe_text(
-                    model_value(
-                        record,
-                        "national_id",
-                    )
+                    getattr(existing, "national_id", "")
                 ),
-                key=f"{prefix}_national_id",
             )
 
             passport_number = st.text_input(
-                "Passport number",
+                "Passport Number",
                 value=safe_text(
-                    model_value(
-                        record,
-                        "passport_number",
-                    )
+                    getattr(existing, "passport_number", "")
                 ),
-                key=f"{prefix}_passport",
             )
 
             gender = st.selectbox(
@@ -1669,14 +1354,14 @@ def render_citizen_form(
                         "Female",
                         "Other",
                     ].index(
-                        model_value(
-                            record,
+                        getattr(
+                            existing,
                             "gender",
                             "Other",
                         )
                     )
-                    if model_value(
-                        record,
+                    if getattr(
+                        existing,
                         "gender",
                         "Other",
                     )
@@ -1687,17 +1372,16 @@ def render_citizen_form(
                     ]
                     else 2
                 ),
-                key=f"{prefix}_gender",
             )
 
             marital_status = st.selectbox(
-                "Marital status",
+                "Marital Status",
                 [
                     "Single",
                     "Married",
                     "Divorced",
                     "Widowed",
-                    "Separated",
+                    "Other",
                 ],
                 index=(
                     [
@@ -1705,16 +1389,16 @@ def render_citizen_form(
                         "Married",
                         "Divorced",
                         "Widowed",
-                        "Separated",
+                        "Other",
                     ].index(
-                        model_value(
-                            record,
+                        getattr(
+                            existing,
                             "marital_status",
                             "Single",
                         )
                     )
-                    if model_value(
-                        record,
+                    if getattr(
+                        existing,
                         "marital_status",
                         "Single",
                     )
@@ -1723,260 +1407,225 @@ def render_citizen_form(
                         "Married",
                         "Divorced",
                         "Widowed",
-                        "Separated",
+                        "Other",
                     ]
                     else 0
                 ),
-                key=f"{prefix}_marital",
             )
 
-        with c2:
-
-            dob_value = model_value(
-                record,
-                "date_of_birth",
+            dob = st.date_input(
+                "Date of Birth",
+                value=getattr(
+                    existing,
+                    "date_of_birth",
+                    date(2000, 1, 1),
+                )
+                or date(2000, 1, 1),
             )
 
-            date_of_birth = st.date_input(
-                "Date of birth",
-                value=(
-                    dob_value
-                    if isinstance(
-                        dob_value,
-                        date,
-                    )
-                    else date(
-                        2000,
-                        1,
-                        1,
-                    )
-                ),
-                key=f"{prefix}_dob",
-            )
+        with col2:
 
             nationality = st.text_input(
                 "Nationality",
                 value=safe_text(
-                    model_value(
-                        record,
+                    getattr(
+                        existing,
                         "nationality",
                         "South Sudanese",
                     )
                 ),
-                key=f"{prefix}_nationality",
             )
 
             phone_number = st.text_input(
-                "Phone number",
+                "Phone Number",
                 value=safe_text(
-                    model_value(
-                        record,
+                    getattr(
+                        existing,
                         "phone_number",
+                        "",
                     )
                 ),
-                key=f"{prefix}_phone",
             )
 
             email_address = st.text_input(
-                "Email address",
+                "Email Address",
                 value=safe_text(
-                    model_value(
-                        record,
+                    getattr(
+                        existing,
                         "email_address",
+                        "",
                     )
                 ),
-                key=f"{prefix}_email",
             )
-
-            verification_status = st.selectbox(
-                "Verification status",
-                [
-                    "Pending Review",
-                    "Verified",
-                    "Rejected",
-                    "Needs Correction",
-                ],
-                index=(
-                    [
-                        "Pending Review",
-                        "Verified",
-                        "Rejected",
-                        "Needs Correction",
-                    ].index(
-                        model_value(
-                            record,
-                            "verification_status",
-                            "Pending Review",
-                        )
-                    )
-                    if model_value(
-                        record,
-                        "verification_status",
-                        "Pending Review",
-                    )
-                    in [
-                        "Pending Review",
-                        "Verified",
-                        "Rejected",
-                        "Needs Correction",
-                    ]
-                    else 0
-                ),
-                key=f"{prefix}_verification",
-            )
-
-        st.markdown("#### Location")
-
-        l1, l2, l3 = st.columns(3)
-
-        with l1:
-
-            state_or_region = st.text_input(
-                "State / Region",
-                value=safe_text(
-                    model_value(
-                        record,
-                        "state_or_region",
-                    )
-                ),
-                key=f"{prefix}_state",
-            )
-
-        with l2:
-
-            county_or_payam = st.text_input(
-                "County / Payam",
-                value=safe_text(
-                    model_value(
-                        record,
-                        "county_or_payam",
-                    )
-                ),
-                key=f"{prefix}_county",
-            )
-
-        with l3:
-
-            boma = st.text_input(
-                "Boma",
-                value=safe_text(
-                    model_value(
-                        record,
-                        "boma",
-                    )
-                ),
-                key=f"{prefix}_boma",
-            )
-
-        community = st.text_input(
-            "Community",
-            value=safe_text(
-                model_value(
-                    record,
-                    "community",
-                )
-            ),
-            key=f"{prefix}_community",
-        )
-
-        residential_address = st.text_area(
-            "Residential address",
-            value=safe_text(
-                model_value(
-                    record,
-                    "residential_address",
-                )
-            ),
-            key=f"{prefix}_address",
-        )
-
-        st.markdown("#### Demographics")
-
-        d1, d2, d3 = st.columns(3)
-
-        with d1:
 
             tribe = st.text_input(
                 "Tribe",
                 value=safe_text(
-                    model_value(
-                        record,
+                    getattr(
+                        existing,
                         "tribe",
+                        "",
                     )
                 ),
-                key=f"{prefix}_tribe",
             )
 
-        with d2:
-
-            clan = st.text_input(
-                "Sub-tribe / Clan",
+            native_language = st.text_input(
+                "Native Language",
                 value=safe_text(
-                    model_value(
-                        record,
-                        "sub_tribe_or_clan",
-                    )
-                ),
-                key=f"{prefix}_clan",
-            )
-
-        with d3:
-
-            language = st.text_input(
-                "Native language",
-                value=safe_text(
-                    model_value(
-                        record,
+                    getattr(
+                        existing,
                         "native_language",
+                        "",
                     )
                 ),
-                key=f"{prefix}_language",
             )
 
-        education_level = st.text_input(
-            "Education level",
-            value=safe_text(
-                model_value(
-                    record,
-                    "education_level",
+            state_or_region = st.text_input(
+                "State / Region",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "state_or_region",
+                        "",
+                    )
+                ),
+            )
+
+        st.divider()
+
+        col3, col4 = st.columns(2)
+
+        with col3:
+
+            county_or_payam = st.text_input(
+                "County / Payam",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "county_or_payam",
+                        "",
+                    )
+                ),
+            )
+
+            sub_county_or_boma = st.text_input(
+                "Sub-county / Boma",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "sub_county_or_boma",
+                        "",
+                    )
+                ),
+            )
+
+            boma = st.text_input(
+                "Boma",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "boma",
+                        "",
+                    )
+                ),
+            )
+
+            community = st.text_input(
+                "Community",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "community",
+                        "",
+                    )
+                ),
+            )
+
+            residential_address = st.text_area(
+                "Residential Address",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "residential_address",
+                        "",
+                    )
+                ),
+            )
+
+        with col4:
+
+            education_level = st.selectbox(
+                "Education Level",
+                [
                     "None / Informal",
-                )
-            ),
-            key=f"{prefix}_education",
-        )
+                    "Primary",
+                    "Secondary",
+                    "Certificate",
+                    "Diploma",
+                    "Bachelor",
+                    "Postgraduate",
+                    "Other",
+                ],
+                index=0,
+            )
 
-        employment_status = st.text_input(
-            "Employment status",
-            value=safe_text(
-                model_value(
-                    record,
-                    "employment_status",
+            employment_status = st.selectbox(
+                "Employment Status",
+                [
+                    "Employed",
+                    "Self-employed",
                     "Unemployed / Seeking Work",
-                )
-            ),
-            key=f"{prefix}_employment",
-        )
+                    "Student",
+                    "Retired",
+                    "Other",
+                ],
+                index=2,
+            )
 
-        occupation = st.text_input(
-            "Primary occupation",
-            value=safe_text(
-                model_value(
-                    record,
-                    "primary_occupation",
-                )
-            ),
-            key=f"{prefix}_occupation",
-        )
+            primary_occupation = st.text_input(
+                "Primary Occupation",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "primary_occupation",
+                        "",
+                    )
+                ),
+            )
+
+            employer_or_business_name = st.text_input(
+                "Employer / Business",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "employer_or_business_name",
+                        "",
+                    )
+                ),
+            )
+
+            verification_status = st.selectbox(
+                "Verification Status",
+                [
+                    "Pending Review",
+                    "Verified",
+                    "Rejected",
+                    "Requires Correction",
+                ],
+                index=0,
+            )
+
+        st.divider()
 
         notes = st.text_area(
             "Notes",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "notes",
+                    "",
                 )
             ),
-            key=f"{prefix}_notes",
         )
 
         submitted = st.form_submit_button(
@@ -1986,260 +1635,271 @@ def render_citizen_form(
             use_container_width=True,
         )
 
-    if submitted:
+    if not submitted:
+        return
 
-        if not full_name.strip():
+    if not full_name.strip():
 
-            st.error(
-                "Full name is required."
+        st.error(
+            "Full Name is required."
+        )
+
+        return
+
+    db = get_db()
+
+    if db is None:
+
+        st.error(
+            "Database is not available."
+        )
+
+        return
+
+    try:
+
+        if editing:
+
+            citizen = db.get(
+                Citizen,
+                existing.id,
             )
 
-            return
+            if citizen is None:
 
-        if not database_ok:
-
-            st.error(
-                "Database is unavailable."
-            )
-
-            return
-
-        session = get_session()
-
-        if session is None:
-
-            st.error(
-                "Unable to create database session."
-            )
-
-            return
-
-        try:
-
-            if editing:
-
-                citizen = session.get(
-                    Citizen,
-                    record.id,
+                st.error(
+                    "Citizen record could not be found."
                 )
 
-                if citizen is None:
+                return
 
-                    st.error(
-                        "Citizen record no longer exists."
-                    )
+        else:
 
-                    return
-
-            else:
-
-                citizen = Citizen(
-                    id=safe_uuid(),
-                )
-
-                session.add(citizen)
-
-            citizen.full_name = full_name.strip()
-            citizen.national_id = (
-                national_id.strip()
-                or None
-            )
-            citizen.passport_number = (
-                passport_number.strip()
-                or None
-            )
-            citizen.gender = gender
-            citizen.marital_status = marital_status
-            citizen.nationality = (
-                nationality.strip()
-                or "South Sudanese"
-            )
-            citizen.date_of_birth = date_of_birth
-            citizen.phone_number = (
-                phone_number.strip()
-                or None
-            )
-            citizen.email_address = (
-                email_address.strip()
-                or None
-            )
-            citizen.state_or_region = (
-                state_or_region.strip()
-            )
-            citizen.county_or_payam = (
-                county_or_payam.strip()
-            )
-            citizen.boma = (
-                boma.strip()
-                or None
-            )
-            citizen.community = (
-                community.strip()
-            )
-            citizen.residential_address = (
-                residential_address.strip()
-                or None
-            )
-            citizen.tribe = tribe.strip()
-            citizen.sub_tribe_or_clan = (
-                clan.strip()
-                or None
-            )
-            citizen.native_language = (
-                language.strip()
-            )
-            citizen.education_level = (
-                education_level.strip()
-            )
-            citizen.employment_status = (
-                employment_status.strip()
-            )
-            citizen.primary_occupation = (
-                occupation.strip()
-                or None
-            )
-            citizen.verification_status = (
-                verification_status
-            )
-            citizen.notes = (
-                notes.strip()
-                or None
+            citizen = Citizen(
+                id=new_id(),
             )
 
-            session.commit()
+            db.add(citizen)
 
-            set_notice(
-                (
-                    "Citizen updated successfully."
-                    if editing
-                    else "Citizen registered successfully."
-                )
+        citizen.full_name = full_name.strip()
+        citizen.national_id = (
+            national_id.strip()
+            or None
+        )
+        citizen.passport_number = (
+            passport_number.strip()
+            or None
+        )
+        citizen.gender = gender
+        citizen.marital_status = marital_status
+        citizen.nationality = nationality.strip()
+        citizen.date_of_birth = dob
+        citizen.age = calculate_age(dob)
+        citizen.phone_number = (
+            phone_number.strip()
+            or None
+        )
+        citizen.email_address = (
+            email_address.strip()
+            or None
+        )
+        citizen.tribe = tribe.strip()
+        citizen.native_language = (
+            native_language.strip()
+        )
+        citizen.state_or_region = (
+            state_or_region.strip()
+        )
+        citizen.county_or_payam = (
+            county_or_payam.strip()
+        )
+        citizen.sub_county_or_boma = (
+            sub_county_or_boma.strip()
+        )
+        citizen.boma = (
+            boma.strip()
+            or None
+        )
+        citizen.community = (
+            community.strip()
+        )
+        citizen.residential_address = (
+            residential_address.strip()
+            or None
+        )
+        citizen.education_level = (
+            education_level
+        )
+        citizen.employment_status = (
+            employment_status
+        )
+        citizen.primary_occupation = (
+            primary_occupation.strip()
+            or None
+        )
+        citizen.employer_or_business_name = (
+            employer_or_business_name.strip()
+            or None
+        )
+        citizen.verification_status = (
+            verification_status
+        )
+        citizen.notes = (
+            notes.strip()
+            or None
+        )
+
+        success, error = commit_session(db)
+
+        if success:
+
+            st.success(
+                "Citizen record saved successfully."
             )
+
+            st.session_state.editing_citizen_id = None
 
             st.rerun()
 
-        except Exception as exc:
-
-            session.rollback()
-
-            logger.exception(
-                "Unable to save citizen."
-            )
+        else:
 
             st.error(
-                "Unable to save citizen record."
+                error
+                or "Unable to save citizen."
             )
 
-            with st.expander(
-                "Technical details"
-            ):
+    finally:
 
-                st.exception(exc)
-
-        finally:
-
-            session.close()
+        db.close()
 
 
-# ============================================================
-# CITIZEN RECORD
-# ============================================================
+def render_citizens() -> None:
 
-def render_citizen_record(
-    record: Any,
-) -> None:
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-
-        st.write(
-            f"**National ID:** "
-            f"{safe_text(record.national_id) or 'Not assigned'}"
-        )
-
-        st.write(
-            f"**Date of birth:** "
-            f"{safe_text(record.date_of_birth) or 'Not recorded'}"
-        )
-
-        st.write(
-            f"**Gender:** "
-            f"{safe_text(record.gender)}"
-        )
-
-    with c2:
-
-        st.write(
-            f"**Phone:** "
-            f"{safe_text(record.phone_number) or 'Not recorded'}"
-        )
-
-        st.write(
-            f"**State / Region:** "
-            f"{safe_text(record.state_or_region)}"
-        )
-
-        st.write(
-            f"**County / Payam:** "
-            f"{safe_text(record.county_or_payam)}"
-        )
-
-    with c3:
-
-        st.write(
-            f"**Verification:** "
-            f"{safe_text(record.verification_status)}"
-        )
-
-        st.write(
-            f"**Nationality:** "
-            f"{safe_text(record.nationality)}"
-        )
-
-        st.write(
-            f"**Created:** "
-            f"{safe_text(record.created_at)}"
-        )
-
-    e1, e2 = st.columns(2)
-
-    with e1:
-
-        if st.button(
-            "Edit Citizen",
-            key=f"edit_citizen_{record.id}",
-            use_container_width=True,
-        ):
-
-            st.session_state[
-                "editing_citizen_id"
-            ] = record.id
-
-            st.session_state.active_page = (
-                "Citizens"
-            )
-
-            st.rerun()
-
-    with e2:
-
-        render_delete_button(
-            Citizen,
-            record.id,
-        )
-
-    editing_id = st.session_state.get(
-        "editing_citizen_id"
+    st.title(
+        "Citizens"
     )
 
-    if editing_id == record.id:
+    st.caption(
+        "National population and citizen registry management."
+    )
 
-        st.divider()
+    if not database_ready:
 
-        render_citizen_form(
-            record
+        st.warning(
+            "The citizen registry requires a connected database."
         )
+
+        return
+
+    if (
+        st.session_state.editing_citizen_id
+        is not None
+    ):
+
+        citizen = get_record(
+            Citizen,
+            st.session_state.editing_citizen_id,
+        )
+
+        if citizen:
+
+            if st.button(
+                "Back to Citizen Registry",
+                key="citizen_back_from_edit",
+            ):
+
+                st.session_state.editing_citizen_id = None
+                st.rerun()
+
+            citizen_form(
+                citizen
+            )
+
+            return
+
+        st.session_state.editing_citizen_id = None
+
+    st.subheader(
+        "Register New Citizen"
+    )
+
+    citizen_form()
+
+    st.divider()
+
+    st.subheader(
+        "Citizen Records"
+    )
+
+    db = get_db()
+
+    if db is None:
+        return
+
+    try:
+
+        citizens = list(
+            db.execute(
+                select(Citizen)
+                .order_by(
+                    Citizen.created_at.desc()
+                )
+                .limit(200)
+            ).scalars().all()
+        )
+
+        if not citizens:
+
+            st.info(
+                "No citizen records found."
+            )
+
+            return
+
+        for citizen in citizens:
+
+            col1, col2, col3 = st.columns(
+                [5, 2, 1]
+            )
+
+            with col1:
+
+                st.markdown(
+                    f"**{safe_text(citizen.full_name)}**"
+                )
+
+                st.caption(
+                    f"National ID: "
+                    f"{safe_text(citizen.national_id) or 'Not assigned'} "
+                    f"• {safe_text(citizen.state_or_region)}"
+                )
+
+            with col2:
+
+                st.write(
+                    safe_text(
+                        citizen.verification_status
+                    )
+                )
+
+            with col3:
+
+                if st.button(
+                    "Edit",
+                    key=f"edit_citizen_{citizen.id}",
+                ):
+
+                    st.session_state.editing_citizen_id = (
+                        citizen.id
+                    )
+
+                    st.rerun()
+
+            st.divider()
+
+    finally:
+
+        db.close()
 
 
 # ============================================================
@@ -2248,146 +1908,142 @@ def render_citizen_record(
 
 def render_households() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Population Registry
-        </div>
-
-        <div class="page-heading">
-            Households
-        </div>
-
-        <div class="page-description">
-            Register and manage household locations,
-            household numbers and household membership.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Households"
     )
 
-    if Household is None:
+    st.caption(
+        "Household registration and residential management."
+    )
 
-        st.error(
-            "Household model is unavailable."
+    if not database_ready:
+
+        st.warning(
+            "The household registry requires a connected database."
         )
 
         return
 
-    tab_records, tab_new = st.tabs(
-        [
-            "Household Records",
-            "Register Household",
-        ]
+    editing = (
+        st.session_state.editing_household_id
+        is not None
     )
 
-    with tab_new:
+    existing = None
 
-        render_household_form()
+    if editing:
 
-    with tab_records:
-
-        records = get_records(
-            Household
+        existing = get_record(
+            Household,
+            st.session_state.editing_household_id,
         )
 
-        st.caption(
-            f"{len(records):,} household record(s)"
-        )
+    if editing and existing is None:
 
-        for record in records:
-
-            with st.expander(
-                f"{safe_text(record.household_number)}"
-                f" — {safe_text(record.community)}"
-            ):
-
-                render_household_record(
-                    record
-                )
-
-
-def render_household_form(
-    record: Optional[Any] = None,
-) -> None:
-
-    editing = record is not None
-
-    prefix = (
-        f"edit_household_{record.id}"
-        if editing
-        else "new_household"
-    )
+        st.session_state.editing_household_id = None
+        editing = False
 
     with st.form(
-        key=f"{prefix}_form"
+        key=(
+            "household_edit_form"
+            if editing
+            else "household_create_form"
+        )
     ):
 
         household_number = st.text_input(
-            "Household number *",
+            "Household Number",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "household_number",
+                    "",
                 )
             ),
-            key=f"{prefix}_number",
         )
 
-        state = st.text_input(
-            "State / Region",
+        head_citizen_id = st.text_input(
+            "Head Citizen ID",
             value=safe_text(
-                model_value(
-                    record,
-                    "state_or_region",
+                getattr(
+                    existing,
+                    "head_citizen_id",
+                    "",
                 )
             ),
-            key=f"{prefix}_state",
         )
 
-        county = st.text_input(
-            "County / Payam",
-            value=safe_text(
-                model_value(
-                    record,
-                    "county_or_payam",
-                )
-            ),
-            key=f"{prefix}_county",
-        )
+        col1, col2 = st.columns(2)
 
-        boma = st.text_input(
-            "Boma",
-            value=safe_text(
-                model_value(
-                    record,
-                    "boma",
-                )
-            ),
-            key=f"{prefix}_boma",
-        )
+        with col1:
 
-        community = st.text_input(
-            "Community",
-            value=safe_text(
-                model_value(
-                    record,
-                    "community",
-                )
-            ),
-            key=f"{prefix}_community",
-        )
+            state_or_region = st.text_input(
+                "State / Region",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "state_or_region",
+                        "",
+                    )
+                ),
+            )
 
-        address = st.text_area(
-            "Residential address",
-            value=safe_text(
-                model_value(
-                    record,
-                    "residential_address",
-                )
-            ),
-            key=f"{prefix}_address",
-        )
+            county_or_payam = st.text_input(
+                "County / Payam",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "county_or_payam",
+                        "",
+                    )
+                ),
+            )
+
+            sub_county_or_boma = st.text_input(
+                "Sub-county / Boma",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "sub_county_or_boma",
+                        "",
+                    )
+                ),
+            )
+
+        with col2:
+
+            boma = st.text_input(
+                "Boma",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "boma",
+                        "",
+                    )
+                ),
+            )
+
+            community = st.text_input(
+                "Community",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "community",
+                        "",
+                    )
+                ),
+            )
+
+            residential_address = st.text_area(
+                "Residential Address",
+                value=safe_text(
+                    getattr(
+                        existing,
+                        "residential_address",
+                        "",
+                    )
+                ),
+            )
 
         submitted = st.form_submit_button(
             "Update Household"
@@ -2401,174 +2057,109 @@ def render_household_form(
         if not household_number.strip():
 
             st.error(
-                "Household number is required."
+                "Household Number is required."
             )
 
-            return
+        else:
 
-        if not database_ok:
+            db = get_db()
 
-            st.error(
-                "Database is unavailable."
-            )
+            if db:
 
-            return
+                try:
 
-        session = get_session()
+                    if editing:
 
-        if session is None:
-            st.error(
-                "Unable to create database session."
-            )
-            return
+                        household = db.get(
+                            Household,
+                            existing.id,
+                        )
 
-        try:
+                    else:
 
-            if editing:
+                        household = Household(
+                            id=new_id()
+                        )
 
-                household = session.get(
-                    Household,
-                    record.id,
-                )
+                        db.add(household)
 
-                if household is None:
-
-                    st.error(
-                        "Household record not found."
+                    household.household_number = (
+                        household_number.strip()
                     )
 
-                    return
+                    household.head_citizen_id = (
+                        head_citizen_id.strip()
+                        or None
+                    )
 
-            else:
+                    household.state_or_region = (
+                        state_or_region.strip()
+                    )
 
-                household = Household(
-                    id=safe_uuid()
-                )
+                    household.county_or_payam = (
+                        county_or_payam.strip()
+                        or None
+                    )
 
-                session.add(household)
+                    household.sub_county_or_boma = (
+                        sub_county_or_boma.strip()
+                        or None
+                    )
 
-            household.household_number = (
-                household_number.strip()
-            )
+                    household.boma = (
+                        boma.strip()
+                        or None
+                    )
 
-            household.state_or_region = (
-                state.strip()
-            )
+                    household.community = (
+                        community.strip()
+                        or None
+                    )
 
-            household.county_or_payam = (
-                county.strip()
-                or None
-            )
+                    household.residential_address = (
+                        residential_address.strip()
+                        or None
+                    )
 
-            household.boma = (
-                boma.strip()
-                or None
-            )
+                    success, error = commit_session(
+                        db
+                    )
 
-            household.community = (
-                community.strip()
-                or None
-            )
+                    if success:
 
-            household.residential_address = (
-                address.strip()
-                or None
-            )
+                        st.success(
+                            "Household saved successfully."
+                        )
 
-            session.commit()
+                        st.session_state.editing_household_id = None
 
-            set_notice(
-                (
-                    "Household updated successfully."
-                    if editing
-                    else "Household registered successfully."
-                )
-            )
+                        st.rerun()
 
-            st.rerun()
+                    else:
 
-        except Exception as exc:
+                        st.error(
+                            error
+                            or "Unable to save household."
+                        )
 
-            session.rollback()
+                finally:
 
-            logger.exception(
-                "Unable to save household."
-            )
+                    db.close()
 
-            st.error(
-                "Unable to save household."
-            )
+    st.divider()
 
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.exception(exc)
-
-        finally:
-
-            session.close()
-
-
-def render_household_record(
-    record: Any,
-) -> None:
-
-    st.write(
-        f"**State / Region:** "
-        f"{safe_text(record.state_or_region)}"
+    show_records(
+        Household,
+        "Households",
+        [
+            "id",
+            "household_number",
+            "head_citizen_id",
+            "state_or_region",
+            "county_or_payam",
+            "community",
+        ],
     )
-
-    st.write(
-        f"**County / Payam:** "
-        f"{safe_text(record.county_or_payam)}"
-    )
-
-    st.write(
-        f"**Boma:** "
-        f"{safe_text(record.boma)}"
-    )
-
-    st.write(
-        f"**Community:** "
-        f"{safe_text(record.community)}"
-    )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-
-        if st.button(
-            "Edit Household",
-            key=f"edit_household_{record.id}",
-            use_container_width=True,
-        ):
-
-            st.session_state[
-                "editing_household_id"
-            ] = record.id
-
-            st.rerun()
-
-    with c2:
-
-        render_delete_button(
-            Household,
-            record.id,
-        )
-
-    if (
-        st.session_state.get(
-            "editing_household_id"
-        )
-        == record.id
-    ):
-
-        st.divider()
-
-        render_household_form(
-            record
-        )
 
 
 # ============================================================
@@ -2577,200 +2168,135 @@ def render_household_record(
 
 def render_civil_registration() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Civil Registration
-        </div>
-
-        <div class="page-heading">
-            Civil Registration
-        </div>
-
-        <div class="page-description">
-            Register births, deaths, marriages, divorces,
-            certificates and other civil events.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Civil Registration"
     )
 
-    if CivilEvent is None:
+    st.caption(
+        "Birth, death, marriage, divorce and other civil events."
+    )
 
-        st.error(
-            "Civil Event model is unavailable."
+    if not database_ready:
+
+        st.warning(
+            "Civil registration requires a connected database."
         )
 
         return
 
-    tab_records, tab_new = st.tabs(
-        [
-            "Civil Records",
-            "Register Civil Event",
-        ]
+    editing = (
+        st.session_state.editing_civil_event_id
+        is not None
     )
 
-    with tab_new:
+    existing = None
 
-        render_civil_event_form()
+    if editing:
 
-    with tab_records:
-
-        records = get_records(
-            CivilEvent
+        existing = get_record(
+            CivilEvent,
+            st.session_state.editing_civil_event_id,
         )
 
-        st.caption(
-            f"{len(records):,} civil event(s)"
-        )
+    if editing and existing is None:
 
-        for record in records:
-
-            with st.expander(
-                f"{safe_text(record.event_type)}"
-                f" — {safe_text(record.reference_number)}"
-            ):
-
-                render_civil_event_record(
-                    record
-                )
-
-
-def render_civil_event_form(
-    record: Optional[Any] = None,
-) -> None:
-
-    editing = record is not None
-
-    prefix = (
-        f"edit_civil_{record.id}"
-        if editing
-        else "new_civil"
-    )
-
-    event_types = [
-        "Birth",
-        "Death",
-        "Marriage",
-        "Divorce",
-        "Other",
-    ]
+        st.session_state.editing_civil_event_id = None
+        editing = False
 
     with st.form(
-        key=f"{prefix}_form"
+        key=(
+            "civil_event_edit_form"
+            if editing
+            else "civil_event_create_form"
+        )
     ):
 
-        reference = st.text_input(
-            "Reference number *",
+        reference_number = st.text_input(
+            "Reference Number",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "reference_number",
+                    f"CR-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
                 )
             ),
-            key=f"{prefix}_reference",
         )
 
         event_type = st.selectbox(
-            "Event type",
-            event_types,
-            index=(
-                event_types.index(
-                    model_value(
-                        record,
-                        "event_type",
-                        "Birth",
-                    )
-                )
-                if model_value(
-                    record,
-                    "event_type",
-                    "Birth",
-                )
-                in event_types
-                else 0
-            ),
-            key=f"{prefix}_event_type",
+            "Event Type",
+            [
+                "Birth",
+                "Death",
+                "Marriage",
+                "Divorce",
+                "Other",
+            ],
+            index=0,
         )
 
-        existing_date = model_value(
-            record,
-            "event_date",
+        citizen_id = st.text_input(
+            "Citizen ID",
+            value=safe_text(
+                getattr(
+                    existing,
+                    "citizen_id",
+                    "",
+                )
+            ),
         )
 
         event_date = st.date_input(
-            "Event date",
-            value=(
-                existing_date
-                if isinstance(
-                    existing_date,
-                    date,
-                )
-                else date.today()
-            ),
-            key=f"{prefix}_date",
+            "Event Date",
+            value=getattr(
+                existing,
+                "event_date",
+                date.today(),
+            )
+            or date.today(),
         )
 
         registration_centre = st.text_input(
-            "Registration centre",
+            "Registration Centre",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "registration_centre",
+                    "",
                 )
             ),
-            key=f"{prefix}_centre",
         )
 
         document_number = st.text_input(
-            "Document number",
+            "Document Number",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "document_number",
+                    "",
                 )
             ),
-            key=f"{prefix}_document",
         )
-
-        status_options = [
-            "Pending Review",
-            "Registered",
-            "Verified",
-            "Rejected",
-        ]
 
         status = st.selectbox(
             "Status",
-            status_options,
-            index=(
-                status_options.index(
-                    model_value(
-                        record,
-                        "status",
-                        "Pending Review",
-                    )
-                )
-                if model_value(
-                    record,
-                    "status",
-                    "Pending Review",
-                )
-                in status_options
-                else 0
-            ),
-            key=f"{prefix}_status",
+            [
+                "Pending Review",
+                "Registered",
+                "Verified",
+                "Rejected",
+            ],
+            index=0,
         )
 
         notes = st.text_area(
             "Notes",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "notes",
+                    "",
                 )
             ),
-            key=f"{prefix}_notes",
         )
 
         submitted = st.form_submit_button(
@@ -2782,60 +2308,47 @@ def render_civil_event_form(
 
     if submitted:
 
-        if not reference.strip():
+        if not reference_number.strip():
 
             st.error(
-                "Reference number is required."
+                "Reference Number is required."
             )
 
             return
 
-        if not database_ok:
+        db = get_db()
 
-            st.error(
-                "Database is unavailable."
-            )
-
-            return
-
-        session = get_session()
-
-        if session is None:
-            st.error(
-                "Unable to create database session."
-            )
+        if db is None:
             return
 
         try:
 
             if editing:
 
-                event = session.get(
+                event = db.get(
                     CivilEvent,
-                    record.id,
+                    existing.id,
                 )
-
-                if event is None:
-
-                    st.error(
-                        "Civil event not found."
-                    )
-
-                    return
 
             else:
 
                 event = CivilEvent(
-                    id=safe_uuid()
+                    id=new_id()
                 )
 
-                session.add(event)
+                db.add(event)
 
             event.reference_number = (
-                reference.strip()
+                reference_number.strip()
             )
 
             event.event_type = event_type
+
+            event.citizen_id = (
+                citizen_id.strip()
+                or None
+            )
+
             event.event_date = event_date
 
             event.registration_centre = (
@@ -2855,450 +2368,272 @@ def render_civil_event_form(
                 or None
             )
 
-            session.commit()
+            success, error = commit_session(
+                db
+            )
 
-            set_notice(
-                (
-                    "Civil event updated successfully."
-                    if editing
-                    else "Civil event registered successfully."
+            if success:
+
+                st.success(
+                    "Civil registration record saved."
                 )
-            )
 
-            st.rerun()
+                st.session_state.editing_civil_event_id = None
 
-        except Exception as exc:
+                st.rerun()
 
-            session.rollback()
+            else:
 
-            st.error(
-                "Unable to save civil event."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.exception(exc)
+                st.error(
+                    error
+                    or "Unable to save civil event."
+                )
 
         finally:
 
-            session.close()
+            db.close()
 
+    st.divider()
 
-def render_civil_event_record(
-    record: Any,
-) -> None:
-
-    st.write(
-        f"**Event date:** "
-        f"{safe_text(record.event_date)}"
+    show_records(
+        CivilEvent,
+        "Civil Events",
+        [
+            "id",
+            "reference_number",
+            "event_type",
+            "citizen_id",
+            "event_date",
+            "status",
+        ],
     )
-
-    st.write(
-        f"**Registration centre:** "
-        f"{safe_text(record.registration_centre)}"
-    )
-
-    st.write(
-        f"**Status:** "
-        f"{safe_text(record.status)}"
-    )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-
-        if st.button(
-            "Edit Civil Event",
-            key=f"edit_civil_{record.id}",
-            use_container_width=True,
-        ):
-
-            st.session_state[
-                "editing_civil_id"
-            ] = record.id
-
-            st.rerun()
-
-    with c2:
-
-        render_delete_button(
-            CivilEvent,
-            record.id,
-        )
-
-    if (
-        st.session_state.get(
-            "editing_civil_id"
-        )
-        == record.id
-    ):
-
-        st.divider()
-
-        render_civil_event_form(
-            record
-        )
 
 
 # ============================================================
-# IDENTITY MANAGEMENT
+# IDENTITY
 # ============================================================
 
-def render_identity_management() -> None:
+def render_identity() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Identity Management
-        </div>
-
-        <div class="page-heading">
-            Identity Documents
-        </div>
-
-        <div class="page-description">
-            Manage national identity documents,
-            document numbers, issuance and verification.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Identity Management"
     )
 
-    if Document is None:
+    st.caption(
+        "National identity and identity document management."
+    )
 
-        st.error(
-            "Document model is unavailable."
+    if not database_ready:
+
+        st.warning(
+            "Identity management requires a connected database."
         )
 
         return
 
-    tab_records, tab_new = st.tabs(
-        [
-            "Identity Records",
-            "Register Document",
-        ]
+    editing = (
+        st.session_state.editing_document_id
+        is not None
     )
 
-    with tab_new:
+    existing = None
 
-        render_document_form()
+    if editing:
 
-    with tab_records:
-
-        records = get_records(
-            Document
+        existing = get_record(
+            Document,
+            st.session_state.editing_document_id,
         )
 
-        st.caption(
-            f"{len(records):,} identity document(s)"
-        )
+    if editing and existing is None:
 
-        for record in records:
-
-            with st.expander(
-                f"{safe_text(record.document_type)}"
-                f" — {safe_text(record.document_number)}"
-            ):
-
-                render_document_record(
-                    record
-                )
-
-
-# ============================================================
-# DOCUMENT FORM
-# ============================================================
-
-def render_document_form(
-    record: Optional[Any] = None,
-) -> None:
-
-    editing = record is not None
-
-    prefix = (
-        f"edit_document_{record.id}"
-        if editing
-        else "new_document"
-    )
-
-    document_types = [
-        "National ID",
-        "Passport",
-        "Birth Certificate",
-        "Death Certificate",
-        "Marriage Certificate",
-        "Other",
-    ]
-
-    statuses = [
-        "Registered",
-        "Pending",
-        "Verified",
-        "Expired",
-        "Cancelled",
-    ]
+        st.session_state.editing_document_id = None
+        editing = False
 
     with st.form(
-        key=f"{prefix}_form"
+        key=(
+            "identity_edit_form"
+            if editing
+            else "identity_create_form"
+        )
     ):
 
-        document_type = st.selectbox(
-            "Document type",
-            document_types,
-            index=(
-                document_types.index(
-                    model_value(
-                        record,
-                        "document_type",
-                        "National ID",
-                    )
-                )
-                if model_value(
-                    record,
-                    "document_type",
-                    "National ID",
-                )
-                in document_types
-                else 0
-            ),
-            key=f"{prefix}_type",
-        )
-
         document_number = st.text_input(
-            "Document number",
+            "Document Number",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "document_number",
+                    "",
                 )
             ),
-            key=f"{prefix}_number",
         )
 
-        file_name = st.text_input(
-            "File name",
+        document_type = st.selectbox(
+            "Document Type",
+            [
+                "National Identity Card",
+                "Passport",
+                "Birth Certificate",
+                "Other",
+            ],
+        )
+
+        citizen_id = st.text_input(
+            "Citizen ID",
             value=safe_text(
-                model_value(
-                    record,
-                    "file_name",
+                getattr(
+                    existing,
+                    "citizen_id",
+                    "",
                 )
             ),
-            key=f"{prefix}_filename",
         )
 
         status = st.selectbox(
             "Status",
-            statuses,
-            index=(
-                statuses.index(
-                    model_value(
-                        record,
-                        "status",
-                        "Registered",
-                    )
+            [
+                "Registered",
+                "Active",
+                "Expired",
+                "Cancelled",
+                "Under Review",
+            ],
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            issued_date = st.date_input(
+                "Issued Date",
+                value=getattr(
+                    existing,
+                    "issued_date",
+                    date.today(),
                 )
-                if model_value(
-                    record,
-                    "status",
-                    "Registered",
+                or date.today(),
+            )
+
+        with col2:
+
+            expiry_date = st.date_input(
+                "Expiry Date",
+                value=getattr(
+                    existing,
+                    "expiry_date",
+                    date.today(),
                 )
-                in statuses
-                else 0
+                or date.today(),
+            )
+
+        file_name = st.text_input(
+            "File Name",
+            value=safe_text(
+                getattr(
+                    existing,
+                    "file_name",
+                    "",
+                )
             ),
-            key=f"{prefix}_status",
-        )
-
-        issued_value = model_value(
-            record,
-            "issued_date",
-        )
-
-        issued_date = st.date_input(
-            "Issued date",
-            value=(
-                issued_value
-                if isinstance(
-                    issued_value,
-                    date,
-                )
-                else date.today()
-            ),
-            key=f"{prefix}_issued",
-        )
-
-        expiry_value = model_value(
-            record,
-            "expiry_date",
-        )
-
-        expiry_date = st.date_input(
-            "Expiry date",
-            value=(
-                expiry_value
-                if isinstance(
-                    expiry_value,
-                    date,
-                )
-                else date.today()
-            ),
-            key=f"{prefix}_expiry",
         )
 
         submitted = st.form_submit_button(
-            "Update Document"
+            "Update Identity Document"
             if editing
-            else "Register Document",
+            else "Register Identity Document",
             use_container_width=True,
         )
 
     if submitted:
 
-        if not database_ok:
+        db = get_db()
 
-            st.error(
-                "Database is unavailable."
-            )
-
-            return
-
-        session = get_session()
-
-        if session is None:
-            st.error(
-                "Unable to create database session."
-            )
+        if db is None:
             return
 
         try:
 
             if editing:
 
-                document = session.get(
+                document = db.get(
                     Document,
-                    record.id,
+                    existing.id,
                 )
-
-                if document is None:
-
-                    st.error(
-                        "Document not found."
-                    )
-
-                    return
 
             else:
 
                 document = Document(
-                    id=safe_uuid()
+                    id=new_id()
                 )
 
-                session.add(document)
-
-            document.document_type = (
-                document_type
-            )
+                db.add(document)
 
             document.document_number = (
                 document_number.strip()
                 or None
             )
 
+            document.document_type = (
+                document_type
+            )
+
+            document.citizen_id = (
+                citizen_id.strip()
+                or None
+            )
+
+            document.status = status
+
+            document.issued_date = issued_date
+
+            document.expiry_date = expiry_date
+
             document.file_name = (
                 file_name.strip()
                 or None
             )
 
-            document.status = status
-            document.issued_date = issued_date
-            document.expiry_date = expiry_date
+            success, error = commit_session(
+                db
+            )
 
-            session.commit()
+            if success:
 
-            set_notice(
-                (
-                    "Document updated successfully."
-                    if editing
-                    else "Document registered successfully."
+                st.success(
+                    "Identity document saved."
                 )
-            )
 
-            st.rerun()
+                st.session_state.editing_document_id = None
 
-        except Exception as exc:
+                st.rerun()
 
-            session.rollback()
+            else:
 
-            st.error(
-                "Unable to save document."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.exception(exc)
+                st.error(
+                    error
+                    or "Unable to save identity document."
+                )
 
         finally:
 
-            session.close()
+            db.close()
 
+    st.divider()
 
-def render_document_record(
-    record: Any,
-) -> None:
-
-    st.write(
-        f"**Status:** "
-        f"{safe_text(record.status)}"
+    show_records(
+        Document,
+        "Identity Documents",
+        [
+            "id",
+            "document_number",
+            "document_type",
+            "citizen_id",
+            "status",
+            "issued_date",
+            "expiry_date",
+        ],
     )
-
-    st.write(
-        f"**Issued:** "
-        f"{safe_text(record.issued_date)}"
-    )
-
-    st.write(
-        f"**Expiry:** "
-        f"{safe_text(record.expiry_date)}"
-    )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-
-        if st.button(
-            "Edit Document",
-            key=f"edit_document_{record.id}",
-            use_container_width=True,
-        ):
-
-            st.session_state[
-                "editing_document_id"
-            ] = record.id
-
-            st.rerun()
-
-    with c2:
-
-        render_delete_button(
-            Document,
-            record.id,
-        )
-
-    if (
-        st.session_state.get(
-            "editing_document_id"
-        )
-        == record.id
-    ):
-
-        st.divider()
-
-        render_document_form(
-            record
-        )
 
 
 # ============================================================
@@ -3307,169 +2642,128 @@ def render_document_record(
 
 def render_elections() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Electoral Registry
-        </div>
-
-        <div class="page-heading">
-            Elections
-        </div>
-
-        <div class="page-description">
-            Manage voter registration, voter identification,
-            constituencies and polling stations.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Elections"
     )
 
-    if VoterRecord is None:
+    st.caption(
+        "Electoral registration and voter administration."
+    )
 
-        st.error(
-            "Voter Record model is unavailable."
+    if not database_ready:
+
+        st.warning(
+            "Election management requires a connected database."
         )
 
         return
 
-    tab_records, tab_new = st.tabs(
-        [
-            "Voter Records",
-            "Register Voter",
-        ]
+    editing = (
+        st.session_state.editing_voter_id
+        is not None
     )
 
-    with tab_new:
+    existing = None
 
-        render_voter_form()
+    if editing:
 
-    with tab_records:
-
-        records = get_records(
-            VoterRecord
+        existing = get_record(
+            VoterRecord,
+            st.session_state.editing_voter_id,
         )
 
-        st.caption(
-            f"{len(records):,} voter record(s)"
-        )
+    if editing and existing is None:
 
-        for record in records:
-
-            with st.expander(
-                f"{safe_text(record.voter_id_number)}"
-                f" — {safe_text(record.voter_status)}"
-            ):
-
-                render_voter_record(
-                    record
-                )
-
-
-def render_voter_form(
-    record: Optional[Any] = None,
-) -> None:
-
-    editing = record is not None
-
-    prefix = (
-        f"edit_voter_{record.id}"
-        if editing
-        else "new_voter"
-    )
-
-    statuses = [
-        "Active",
-        "Inactive",
-        "Suspended",
-        "Transferred",
-        "Pending Review",
-    ]
+        st.session_state.editing_voter_id = None
+        editing = False
 
     with st.form(
-        key=f"{prefix}_form"
+        key=(
+            "voter_edit_form"
+            if editing
+            else "voter_create_form"
+        )
     ):
 
-        voter_id = st.text_input(
-            "Voter ID number",
+        citizen_id = st.text_input(
+            "Citizen ID",
             value=safe_text(
-                model_value(
-                    record,
-                    "voter_id_number",
+                getattr(
+                    existing,
+                    "citizen_id",
+                    "",
                 )
             ),
-            key=f"{prefix}_voter_id",
         )
 
-        status = st.selectbox(
-            "Voter status",
-            statuses,
-            index=(
-                statuses.index(
-                    model_value(
-                        record,
-                        "voter_status",
-                        "Active",
-                    )
+        voter_id_number = st.text_input(
+            "Voter ID Number",
+            value=safe_text(
+                getattr(
+                    existing,
+                    "voter_id_number",
+                    "",
                 )
-                if model_value(
-                    record,
-                    "voter_status",
-                    "Active",
-                )
-                in statuses
-                else 0
             ),
-            key=f"{prefix}_status",
+        )
+
+        voter_status = st.selectbox(
+            "Voter Status",
+            [
+                "Active",
+                "Pending",
+                "Suspended",
+                "Transferred",
+                "Removed",
+            ],
         )
 
         constituency = st.text_input(
             "Constituency",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "constituency",
+                    "",
                 )
             ),
-            key=f"{prefix}_constituency",
         )
 
-        polling_id = st.text_input(
-            "Polling station ID",
+        polling_station_id = st.text_input(
+            "Polling Station ID",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "polling_station_id",
+                    "",
                 )
             ),
-            key=f"{prefix}_polling_id",
         )
 
-        polling_name = st.text_input(
-            "Polling station name",
+        polling_station_name = st.text_input(
+            "Polling Station Name",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "polling_station_name",
+                    "",
                 )
             ),
-            key=f"{prefix}_polling_name",
         )
 
         has_voted = st.checkbox(
-            "Record as voted",
+            "Marked as Voted",
             value=bool(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "has_voted",
                     False,
                 )
             ),
-            key=f"{prefix}_has_voted",
         )
 
         submitted = st.form_submit_button(
-            "Update Voter"
+            "Update Voter Record"
             if editing
             else "Register Voter",
             use_container_width=True,
@@ -3477,53 +2771,48 @@ def render_voter_form(
 
     if submitted:
 
-        if not database_ok:
+        if not citizen_id.strip():
 
             st.error(
-                "Database is unavailable."
+                "Citizen ID is required."
             )
 
             return
 
-        session = get_session()
+        db = get_db()
 
-        if session is None:
-            st.error(
-                "Unable to create database session."
-            )
+        if db is None:
             return
 
         try:
 
             if editing:
 
-                voter = session.get(
+                voter = db.get(
                     VoterRecord,
-                    record.id,
+                    existing.id,
                 )
-
-                if voter is None:
-
-                    st.error(
-                        "Voter record not found."
-                    )
-
-                    return
 
             else:
 
                 voter = VoterRecord(
-                    id=safe_uuid()
+                    id=new_id()
                 )
 
-                session.add(voter)
+                db.add(voter)
+
+            voter.citizen_id = (
+                citizen_id.strip()
+            )
 
             voter.voter_id_number = (
-                voter_id.strip()
+                voter_id_number.strip()
                 or None
             )
 
-            voter.voter_status = status
+            voter.voter_status = (
+                voter_status
+            )
 
             voter.constituency = (
                 constituency.strip()
@@ -3531,12 +2820,12 @@ def render_voter_form(
             )
 
             voter.polling_station_id = (
-                polling_id.strip()
+                polling_station_id.strip()
                 or None
             )
 
             voter.polling_station_name = (
-                polling_name.strip()
+                polling_station_name.strip()
                 or None
             )
 
@@ -3544,102 +2833,59 @@ def render_voter_form(
 
             if has_voted:
 
-                voter.voted_at = datetime.utcnow()
+                voter.voted_at = (
+                    getattr(
+                        existing,
+                        "voted_at",
+                        None,
+                    )
+                    or datetime.utcnow()
+                )
 
             else:
 
                 voter.voted_at = None
 
-            session.commit()
+            success, error = commit_session(
+                db
+            )
 
-            set_notice(
-                (
-                    "Voter record updated successfully."
-                    if editing
-                    else "Voter record registered successfully."
+            if success:
+
+                st.success(
+                    "Voter record saved."
                 )
-            )
 
-            st.rerun()
+                st.session_state.editing_voter_id = None
 
-        except Exception as exc:
+                st.rerun()
 
-            session.rollback()
+            else:
 
-            st.error(
-                "Unable to save voter record."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.exception(exc)
+                st.error(
+                    error
+                    or "Unable to save voter record."
+                )
 
         finally:
 
-            session.close()
+            db.close()
 
+    st.divider()
 
-def render_voter_record(
-    record: Any,
-) -> None:
-
-    st.write(
-        f"**Status:** "
-        f"{safe_text(record.voter_status)}"
+    show_records(
+        VoterRecord,
+        "Voter Records",
+        [
+            "id",
+            "citizen_id",
+            "voter_id_number",
+            "voter_status",
+            "constituency",
+            "polling_station_name",
+            "has_voted",
+        ],
     )
-
-    st.write(
-        f"**Constituency:** "
-        f"{safe_text(record.constituency)}"
-    )
-
-    st.write(
-        f"**Polling station:** "
-        f"{safe_text(record.polling_station_name)}"
-    )
-
-    st.write(
-        f"**Has voted:** "
-        f"{'Yes' if record.has_voted else 'No'}"
-    )
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-
-        if st.button(
-            "Edit Voter",
-            key=f"edit_voter_{record.id}",
-            use_container_width=True,
-        ):
-
-            st.session_state[
-                "editing_voter_id"
-            ] = record.id
-
-            st.rerun()
-
-    with c2:
-
-        render_delete_button(
-            VoterRecord,
-            record.id,
-        )
-
-    if (
-        st.session_state.get(
-            "editing_voter_id"
-        )
-        == record.id
-    ):
-
-        st.divider()
-
-        render_voter_form(
-            record
-        )
 
 
 # ============================================================
@@ -3648,223 +2894,155 @@ def render_voter_record(
 
 def render_administrative_units() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Administration
-        </div>
-
-        <div class="page-heading">
-            Administrative Units
-        </div>
-
-        <div class="page-description">
-            Manage the administrative hierarchy of the registry.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Administrative Units"
     )
 
-    if AdministrativeUnit is None:
+    st.caption(
+        "States, counties, payams, bomas and other administrative areas."
+    )
 
-        st.error(
-            "Administrative Unit model is unavailable."
+    if not database_ready:
+
+        st.warning(
+            "Administrative management requires a connected database."
         )
 
         return
 
-    tab_records, tab_new = st.tabs(
-        [
-            "Administrative Units",
-            "Create Unit",
-        ]
+    editing = (
+        st.session_state.editing_admin_unit_id
+        is not None
     )
 
-    with tab_new:
+    existing = None
 
-        render_administrative_unit_form()
+    if editing:
 
-    with tab_records:
-
-        records = get_records(
-            AdministrativeUnit
+        existing = get_record(
+            AdministrativeUnit,
+            st.session_state.editing_admin_unit_id,
         )
 
-        st.caption(
-            f"{len(records):,} administrative unit(s)"
-        )
+    if editing and existing is None:
 
-        for record in records:
-
-            with st.expander(
-                f"{safe_text(record.unit_type)}"
-                f" — {safe_text(record.name)}"
-            ):
-
-                st.write(
-                    f"**Code:** "
-                    f"{safe_text(record.code)}"
-                )
-
-                st.write(
-                    f"**State / Region:** "
-                    f"{safe_text(record.state_or_region)}"
-                )
-
-                c1, c2 = st.columns(2)
-
-                with c1:
-
-                    if st.button(
-                        "Edit Unit",
-                        key=f"edit_unit_{record.id}",
-                        use_container_width=True,
-                    ):
-
-                        st.session_state[
-                            "editing_unit_id"
-                        ] = record.id
-
-                        st.rerun()
-
-                with c2:
-
-                    render_delete_button(
-                        AdministrativeUnit,
-                        record.id,
-                    )
-
-                if (
-                    st.session_state.get(
-                        "editing_unit_id"
-                    )
-                    == record.id
-                ):
-
-                    st.divider()
-
-                    render_administrative_unit_form(
-                        record
-                    )
-
-
-def render_administrative_unit_form(
-    record: Optional[Any] = None,
-) -> None:
-
-    editing = record is not None
-
-    prefix = (
-        f"edit_unit_{record.id}"
-        if editing
-        else "new_unit"
-    )
-
-    unit_types = [
-        "Country",
-        "State",
-        "County",
-        "Payam",
-        "Boma",
-        "Other",
-    ]
+        st.session_state.editing_admin_unit_id = None
+        editing = False
 
     with st.form(
-        key=f"{prefix}_form"
+        key=(
+            "admin_unit_edit_form"
+            if editing
+            else "admin_unit_create_form"
+        )
     ):
 
         unit_type = st.selectbox(
-            "Unit type",
-            unit_types,
-            index=(
-                unit_types.index(
-                    model_value(
-                        record,
-                        "unit_type",
-                        "State",
-                    )
-                )
-                if model_value(
-                    record,
-                    "unit_type",
-                    "State",
-                )
-                in unit_types
-                else 1
-            ),
-            key=f"{prefix}_type",
+            "Unit Type",
+            [
+                "Country",
+                "State",
+                "County",
+                "Payam",
+                "Boma",
+                "Other",
+            ],
         )
 
         name = st.text_input(
-            "Name *",
+            "Name",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "name",
+                    "",
                 )
             ),
-            key=f"{prefix}_name",
         )
 
         code = st.text_input(
-            "Code *",
+            "Code",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "code",
+                    "",
                 )
             ),
-            key=f"{prefix}_code",
         )
 
-        state = st.text_input(
+        parent_id = st.text_input(
+            "Parent Unit ID",
+            value=safe_text(
+                getattr(
+                    existing,
+                    "parent_id",
+                    "",
+                )
+            ),
+        )
+
+        state_or_region = st.text_input(
             "State / Region",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "state_or_region",
+                    "",
                 )
             ),
-            key=f"{prefix}_state",
         )
 
-        administrator = st.text_input(
+        administrator_name = st.text_input(
             "Administrator",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "administrator_name",
+                    "",
                 )
             ),
-            key=f"{prefix}_administrator",
         )
 
         headquarters = st.text_input(
             "Headquarters",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "headquarters",
+                    "",
                 )
             ),
-            key=f"{prefix}_headquarters",
+        )
+
+        target_population = st.number_input(
+            "Target Population",
+            min_value=0,
+            value=int(
+                getattr(
+                    existing,
+                    "target_population",
+                    0,
+                )
+                or 0
+            ),
         )
 
         notes = st.text_area(
             "Notes",
             value=safe_text(
-                model_value(
-                    record,
+                getattr(
+                    existing,
                     "notes",
+                    "",
                 )
             ),
-            key=f"{prefix}_notes",
         )
 
         submitted = st.form_submit_button(
-            "Update Unit"
+            "Update Administrative Unit"
             if editing
-            else "Create Unit",
+            else "Create Administrative Unit",
             use_container_width=True,
         )
 
@@ -3886,102 +3064,95 @@ def render_administrative_unit_form(
 
             return
 
-        if not database_ok:
+        db = get_db()
 
-            st.error(
-                "Database is unavailable."
-            )
-
-            return
-
-        session = get_session()
-
-        if session is None:
-            st.error(
-                "Unable to create database session."
-            )
+        if db is None:
             return
 
         try:
 
             if editing:
 
-                unit = session.get(
+                unit = db.get(
                     AdministrativeUnit,
-                    record.id,
+                    existing.id,
                 )
-
-                if unit is None:
-
-                    st.error(
-                        "Administrative unit not found."
-                    )
-
-                    return
 
             else:
 
                 unit = AdministrativeUnit(
-                    id=safe_uuid()
+                    id=new_id()
                 )
 
-                session.add(unit)
+                db.add(unit)
 
             unit.unit_type = unit_type
             unit.name = name.strip()
             unit.code = code.strip()
-            unit.state_or_region = state.strip()
+            unit.parent_id = (
+                parent_id.strip()
+                or None
+            )
+            unit.state_or_region = (
+                state_or_region.strip()
+            )
             unit.administrator_name = (
-                administrator.strip()
+                administrator_name.strip()
                 or None
             )
             unit.headquarters = (
                 headquarters.strip()
                 or None
             )
+            unit.target_population = (
+                int(target_population)
+                if target_population
+                else None
+            )
             unit.notes = (
                 notes.strip()
                 or None
             )
 
-            session.commit()
+            success, error = commit_session(
+                db
+            )
 
-            set_notice(
-                (
-                    "Administrative unit updated successfully."
-                    if editing
-                    else "Administrative unit created successfully."
+            if success:
+
+                st.success(
+                    "Administrative unit saved."
                 )
-            )
 
-            st.rerun()
+                st.session_state.editing_admin_unit_id = None
 
-        except Exception as exc:
+                st.rerun()
 
-            session.rollback()
+            else:
 
-            st.error(
-                "Unable to save administrative unit."
-            )
-
-            with st.expander(
-                "Technical details"
-            ):
-
-                st.exception(exc)
+                st.error(
+                    error
+                    or "Unable to save administrative unit."
+                )
 
         finally:
 
-            session.close()
+            db.close()
 
+    st.divider()
 
-# ============================================================
-# DOCUMENTS
-# ============================================================
-
-def render_documents() -> None:
-
-    render_identity_management()
+    show_records(
+        AdministrativeUnit,
+        "Administrative Units",
+        [
+            "id",
+            "unit_type",
+            "name",
+            "code",
+            "parent_id",
+            "state_or_region",
+        ],
+    )
 
 
 # ============================================================
@@ -3990,489 +3161,263 @@ def render_documents() -> None:
 
 def render_reports() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Reports & Analytics
-        </div>
-
-        <div class="page-heading">
-            Registry Reports
-        </div>
-
-        <div class="page-description">
-            Operational statistics and registry summaries.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Reports & Analytics"
     )
 
-    citizens = count_records(Citizen)
-    households = count_records(Household)
-    civil_events = count_records(CivilEvent)
-    documents = count_records(Document)
-    voters = count_records(VoterRecord)
-    admin_units = count_records(
+    st.caption(
+        "Registry statistics and operational summaries."
+    )
+
+    population = count_records(
+        Citizen
+    )
+
+    households = count_records(
+        Household
+    )
+
+    civil_events = count_records(
+        CivilEvent
+    )
+
+    identity_documents = count_records(
+        Document
+    )
+
+    voters = count_records(
+        VoterRecord
+    )
+
+    units = count_records(
         AdministrativeUnit
     )
 
-    data = {
-        "Citizens": citizens,
-        "Households": households,
-        "Civil Events": civil_events,
-        "Identity Documents": documents,
-        "Voter Records": voters,
-        "Administrative Units": admin_units,
-    }
+    cols = st.columns(3)
 
-    st.bar_chart(data)
+    report_metrics = [
+        (
+            "Population",
+            population,
+        ),
+        (
+            "Households",
+            households,
+        ),
+        (
+            "Civil Events",
+            civil_events,
+        ),
+        (
+            "Identity Documents",
+            identity_documents,
+        ),
+        (
+            "Voter Records",
+            voters,
+        ),
+        (
+            "Administrative Units",
+            units,
+        ),
+    ]
+
+    for index, (
+        label,
+        value,
+    ) in enumerate(report_metrics):
+
+        with cols[index % 3]:
+
+            st.metric(
+                label,
+                f"{value:,}",
+            )
 
     st.divider()
 
-    for label, value in data.items():
-
-        st.metric(
-            label,
-            f"{value:,}",
-        )
-
-
-# ============================================================
-# VERIFICATION
-# ============================================================
-
-def render_verification() -> None:
-
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Registry Operations
-        </div>
-
-        <div class="page-heading">
-            Verification
-        </div>
-
-        <div class="page-description">
-            Review records requiring verification or administrative
-            approval.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.subheader(
+        "Population by State / Region"
     )
 
-    if not database_ok:
+    if database_ready and Citizen:
 
-        st.warning(
-            "Database is not connected."
-        )
+        db = get_db()
 
-        return
+        if db:
 
-    pending = []
+            try:
 
-    records = get_records(
-        Citizen,
-        limit=1000,
-    )
-
-    for citizen in records:
-
-        if (
-            safe_text(
-                getattr(
-                    citizen,
-                    "verification_status",
-                    "",
+                result = db.execute(
+                    select(
+                        Citizen.state_or_region,
+                        func.count(Citizen.id),
+                    )
+                    .group_by(
+                        Citizen.state_or_region
+                    )
+                    .order_by(
+                        func.count(Citizen.id).desc()
+                    )
                 )
-            )
-            not in [
-                "Verified",
-            ]
-        ):
 
-            pending.append(
-                citizen
-            )
+                rows = [
+                    {
+                        "State / Region":
+                            state or "Not Specified",
+                        "Population":
+                            count,
+                    }
+                    for state, count
+                    in result.all()
+                ]
 
-    st.metric(
-        "Records requiring review",
-        len(pending),
-    )
+                if rows:
 
-    for citizen in pending[:100]:
-
-        with st.expander(
-            f"{safe_text(citizen.full_name)}"
-            f" — {safe_text(citizen.verification_status)}"
-        ):
-
-            st.write(
-                f"**National ID:** "
-                f"{safe_text(citizen.national_id)}"
-            )
-
-            st.write(
-                f"**Status:** "
-                f"{safe_text(citizen.verification_status)}"
-            )
-
-            if st.button(
-                "Mark Verified",
-                key=f"verify_citizen_{citizen.id}",
-                use_container_width=True,
-            ):
-
-                session = get_session()
-
-                if session is None:
-
-                    st.error(
-                        "Database session unavailable."
+                    st.dataframe(
+                        rows,
+                        use_container_width=True,
+                        hide_index=True,
                     )
 
-                    continue
+                else:
 
-                try:
-
-                    item = session.get(
-                        Citizen,
-                        citizen.id,
+                    st.info(
+                        "No population analytics are available yet."
                     )
 
-                    if item:
+            finally:
 
-                        item.verification_status = (
-                            "Verified"
-                        )
-
-                        item.verified_at = (
-                            datetime.utcnow()
-                        )
-
-                        session.commit()
-
-                        set_notice(
-                            "Citizen record verified."
-                        )
-
-                        st.rerun()
-
-                except Exception as exc:
-
-                    session.rollback()
-
-                    st.error(
-                        "Unable to verify record."
-                    )
-
-                    with st.expander(
-                        "Technical details"
-                    ):
-
-                        st.exception(exc)
-
-                finally:
-
-                    session.close()
+                db.close()
 
 
 # ============================================================
-# ADMINISTRATION
+# AUDIT LOGS
 # ============================================================
 
-def render_administration() -> None:
+def render_audit_logs() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Administration
-        </div>
-
-        <div class="page-heading">
-            Administration
-        </div>
-
-        <div class="page-description">
-            System administration, database controls and
-            registry configuration.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Audit Logs"
     )
 
-    c1, c2 = st.columns(2)
+    st.caption(
+        "Registry activity and administrative audit records."
+    )
 
-    with c1:
+    show_records(
+        AuditLog,
+        "Audit Logs",
+        [
+            "id",
+            "action",
+            "entity_type",
+            "entity_id",
+            "username",
+            "created_at",
+            "details",
+        ],
+    )
 
-        st.markdown(
-            """
-            <div class="registry-card">
 
-                <div class="module-name">
-                    Database
-                </div>
+# ============================================================
+# SYSTEM ADMINISTRATION
+# ============================================================
 
-                <div class="module-description">
-                    Database initialization and connectivity status.
-                </div>
+def render_system() -> None:
 
-            </div>
-            """,
-            unsafe_allow_html=True,
+    st.title(
+        "System Administration"
+    )
+
+    st.caption(
+        "Registry platform configuration and system status."
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.subheader(
+            "Application"
         )
 
-        if database_ok:
+        st.write(
+            "South Sudan National Registry"
+        )
+
+        st.write(
+            "Version 1.0.0"
+        )
+
+        st.write(
+            "Streamlit AI Studio"
+        )
+
+    with col2:
+
+        st.subheader(
+            "Database"
+        )
+
+        if database_ready:
 
             st.success(
-                "Database Connected"
+                "Connected"
             )
 
         else:
 
             st.warning(
-                "Database Attention Required"
+                "Attention Required"
             )
-
-    with c2:
-
-        st.markdown(
-            """
-            <div class="registry-card">
-
-                <div class="module-name">
-                    Registry Platform
-                </div>
-
-                <div class="module-description">
-                    South Sudan National Registry platform.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.info(
-            f"Version {APP_VERSION}"
-        )
 
     st.divider()
 
     st.subheader(
-        "Database Actions"
+        "Database Diagnostics"
     )
 
-    if st.button(
-        "Initialize / Repair Database",
-        key="admin_initialize_database",
-    ):
-
-        initialize_database.clear()
-
-        ok, error = initialize_database()
-
-        if ok:
-
-            st.session_state.database_initialized = True
-            st.session_state.database_error = None
-
-            st.success(
-                "Database initialized successfully."
-            )
-
-        else:
-
-            st.session_state.database_initialized = False
-            st.session_state.database_error = error
-
-            st.error(
-                "Database initialization failed."
-            )
-
-            if error:
-
-                st.code(error)
-
-
-# ============================================================
-# AUDIT LOG
-# ============================================================
-
-def render_audit_log() -> None:
-
-    st.markdown(
-        """
-        <div class="page-kicker">
-            Administration
-        </div>
-
-        <div class="page-heading">
-            Audit Log
-        </div>
-
-        <div class="page-description">
-            Application audit events recorded by the registry
-            service layer.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if AuditLog is None:
-
-        st.info(
-            "Audit Log model is not available."
-        )
-
-        return
-
-    records = get_records(
-        AuditLog,
-        limit=500,
-    )
-
-    if not records:
-
-        st.info(
-            "No audit events have been recorded."
-        )
-
-        return
-
-    for record in records:
-
-        st.markdown(
-            f"""
-            <div class="registry-card">
-
-                <div class="module-name">
-                    {safe_text(record.action)}
-                </div>
-
-                <div class="module-description">
-                    Entity:
-                    {safe_text(record.entity_type)}
-                    |
-                    ID:
-                    {safe_text(record.entity_id)}
-                    |
-                    User:
-                    {safe_text(record.username)}
-                </div>
-
-                <div class="registry-version">
-                    {safe_text(record.created_at)}
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-# ============================================================
-# SYSTEM STATUS
-# ============================================================
-
-def render_system_status() -> None:
-
-    st.markdown(
-        """
-        <div class="page-kicker">
-            System
-        </div>
-
-        <div class="page-heading">
-            System Status
-        </div>
-
-        <div class="page-description">
-            Current status of the South Sudan National Registry
-            application and database layer.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-
-        st.metric(
-            "Registry Interface",
-            "Available",
-        )
-
-    with c2:
-
-        st.metric(
-            "Database",
-            "Connected"
-            if database_ok
-            else "Attention",
-        )
-
-    with c3:
-
-        st.metric(
-            "Version",
-            APP_VERSION,
-        )
-
-    st.divider()
-
-    if database_ok:
+    if database_ready:
 
         st.success(
-            "The Registry interface and database are operational."
+            "Database initialization completed successfully."
         )
 
     else:
 
-        st.warning(
-            "The Registry interface is running without a "
-            "connected database."
+        st.error(
+            "Database initialization failed."
         )
 
-        if st.session_state.database_error:
+        with st.expander(
+            "Technical details"
+        ):
 
-            with st.expander(
-                "Database technical details"
-            ):
-
-                st.code(
-                    st.session_state.database_error
-                )
+            st.code(
+                database_error
+                or "Unknown error."
+            )
 
     st.divider()
 
     st.subheader(
-        "Application Components"
+        "Model Availability"
     )
 
-    components = [
-        (
-            "Streamlit Interface",
-            True,
-        ),
-        (
-            "SQLAlchemy Models",
-            MODELS_AVAILABLE,
-        ),
-        (
-            "Database Layer",
-            DATABASE_AVAILABLE,
-        ),
-        (
-            "Database Connection",
-            database_ok,
-        ),
-    ]
+    model_status = {
+        "Citizen": Citizen,
+        "Household": Household,
+        "CivilEvent": CivilEvent,
+        "Document": Document,
+        "VoterRecord": VoterRecord,
+        "AdministrativeUnit": AdministrativeUnit,
+        "AuditLog": AuditLog,
+    }
 
-    for name, available in components:
+    for name, model in model_status.items():
 
-        if available:
+        if model is not None:
 
             st.success(
                 f"{name}: Available"
@@ -4480,230 +3425,297 @@ def render_system_status() -> None:
 
         else:
 
-            st.warning(
-                f"{name}: Attention Required"
+            st.error(
+                f"{name}: Unavailable"
             )
 
 
 # ============================================================
-# SETTINGS
+# MODULE REGISTRY
 # ============================================================
 
-def render_settings() -> None:
+def render_module_registry() -> None:
 
-    st.markdown(
-        """
-        <div class="page-kicker">
-            System
-        </div>
-
-        <div class="page-heading">
-            Settings
-        </div>
-
-        <div class="page-description">
-            Application interface settings.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title(
+        "Module Registry"
     )
 
-    theme = st.radio(
-        "Application theme",
-        [
-            "dark",
-            "light",
-        ],
-        index=(
-            0
-            if st.session_state.theme == "dark"
-            else 1
-        ),
-        key="settings_theme",
+    st.caption(
+        "Configured operational modules available to the Registry platform."
     )
 
-    if theme != st.session_state.theme:
+    if not MODULE_REGISTRY_AVAILABLE:
 
-        st.session_state.theme = theme
+        st.info(
+            "The optional module registry is not available. "
+            "Core Registry modules remain available."
+        )
 
-        st.rerun()
+        if MODULE_REGISTRY_ERROR:
 
-    st.info(
-        "Database credentials and secrets should be configured "
-        "through environment variables or Streamlit secrets, "
-        "not stored directly in streamlit_app.py."
+            with st.expander(
+                "Technical details"
+            ):
+
+                st.exception(
+                    MODULE_REGISTRY_ERROR
+                )
+
+        return
+
+    try:
+
+        modules = list(
+            get_available_modules()
+            or []
+        )
+
+    except Exception as exc:
+
+        st.error(
+            "Unable to load registry modules."
+        )
+
+        with st.expander(
+            "Technical details"
+        ):
+
+            st.exception(exc)
+
+        return
+
+    if not modules:
+
+        st.info(
+            "No external registry modules are configured."
+        )
+
+        return
+
+    for module in modules:
+
+        label = getattr(
+            module,
+            "label",
+            getattr(
+                module,
+                "key",
+                "Registry Module",
+            ),
+        )
+
+        description = getattr(
+            module,
+            "description",
+            "",
+        )
+
+        available = bool(
+            getattr(
+                module,
+                "available",
+                False,
+            )
+        )
+
+        st.markdown(
+            f"""
+<div class="module-card">
+
+    <div class="module-name">
+        {safe_text(label)}
+    </div>
+
+    <div class="module-description">
+        {safe_text(description)}
+    </div>
+
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if available:
+
+            st.success(
+                "Operational"
+            )
+
+        else:
+
+            st.warning(
+                "Unavailable"
+            )
+
+
+# ============================================================
+# OPTIONAL EXTERNAL MODULE
+# ============================================================
+
+def render_external_module(
+    page_key: str,
+) -> None:
+
+    if not MODULE_REGISTRY_AVAILABLE:
+
+        st.error(
+            "The requested module is unavailable."
+        )
+
+        return
+
+    try:
+
+        module = get_module(
+            page_key
+        )
+
+    except Exception as exc:
+
+        st.error(
+            "Unable to locate the requested module."
+        )
+
+        with st.expander(
+            "Technical details"
+        ):
+
+            st.exception(exc)
+
+        return
+
+    if module is None:
+
+        st.error(
+            "The requested registry module could not be found."
+        )
+
+        return
+
+    available = bool(
+        getattr(
+            module,
+            "available",
+            False,
+        )
     )
+
+    if not available:
+
+        st.warning(
+            "This registry module is currently unavailable."
+        )
+
+        error = getattr(
+            module,
+            "error",
+            None,
+        )
+
+        if error:
+
+            with st.expander(
+                "Technical details"
+            ):
+
+                st.code(
+                    safe_text(error)
+                )
+
+        return
+
+    try:
+
+        render_module(
+            page_key
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "External module failed: %s",
+            page_key,
+        )
+
+        st.error(
+            "The selected module encountered a runtime error."
+        )
+
+        with st.expander(
+            "Technical details"
+        ):
+
+            st.exception(exc)
 
 
 # ============================================================
 # PAGE ROUTER
 # ============================================================
 
-def render_active_page(
-    page: str,
-) -> None:
-
-    if page == "Overview":
-
-        render_overview()
-
-    elif page == "Citizens":
-
-        render_citizens()
-
-    elif page == "Households":
-
-        render_households()
-
-    elif page == "Civil Registration":
-
-        render_civil_registration()
-
-    elif page == "Identity Management":
-
-        render_identity_management()
-
-    elif page == "Elections":
-
-        render_elections()
-
-    elif page == "Administrative Units":
-
-        render_administrative_units()
-
-    elif page == "Reports & Analytics":
-
-        render_reports()
-
-    elif page == "Verification":
-
-        render_verification()
-
-    elif page == "Documents":
-
-        render_documents()
-
-    elif page == "Administration":
-
-        render_administration()
-
-    elif page == "Audit Log":
-
-        render_audit_log()
-
-    elif page == "System Status":
-
-        render_system_status()
-
-    elif page == "Settings":
-
-        render_settings()
-
-    else:
-
-        render_overview()
+PAGE_RENDERERS = {
+    "overview": render_overview,
+    "citizens": render_citizens,
+    "households": render_households,
+    "civil_registration": render_civil_registration,
+    "identity": render_identity,
+    "elections": render_elections,
+    "administrative_units": render_administrative_units,
+    "reports": render_reports,
+    "audit_logs": render_audit_logs,
+    "system": render_system,
+    "module_registry": render_module_registry,
+}
 
 
 # ============================================================
 # MAIN APPLICATION
 # ============================================================
 
-def main() -> None:
+active_page = st.session_state.active_page
 
-    # --------------------------------------------------------
-    # Sidebar
-    # --------------------------------------------------------
+renderer = PAGE_RENDERERS.get(
+    active_page
+)
 
-    selected_page = sidebar_navigation()
+if renderer is not None:
 
-    # --------------------------------------------------------
-    # Synchronize page
-    # --------------------------------------------------------
+    renderer()
 
-    if selected_page:
+else:
 
-        st.session_state.active_page = (
-            selected_page
-        )
-
-    # --------------------------------------------------------
-    # Header
-    # --------------------------------------------------------
-
-    render_header()
-
-    # --------------------------------------------------------
-    # Notice
-    # --------------------------------------------------------
-
-    show_notice()
-
-    # --------------------------------------------------------
-    # Model availability warning
-    # --------------------------------------------------------
-
-    if not MODELS_AVAILABLE:
-
-        st.error(
-            "Registry database models could not be loaded."
-        )
-
-        if MODELS_ERROR:
-
-            with st.expander(
-                "Model technical details"
-            ):
-
-                st.exception(
-                    MODELS_ERROR
-                )
-
-    # --------------------------------------------------------
-    # Main page
-    # --------------------------------------------------------
-
-    render_active_page(
-        st.session_state.active_page
+    render_external_module(
+        active_page
     )
 
-    # --------------------------------------------------------
-    # Footer
-    # --------------------------------------------------------
-
-    st.divider()
-
-    footer_left, footer_right = st.columns(2)
-
-    with footer_left:
-
-        st.markdown(
-            f"""
-            <div class="registry-footer">
-                South Sudan National Registry •
-                Registry Platform •
-                Version {APP_VERSION}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with footer_right:
-
-        st.markdown(
-            """
-            <div class="registry-footer">
-                Registry data should be treated as authoritative
-                only after verification and appropriate
-                administrative approval.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
 
 # ============================================================
-# RUN
+# FOOTER
 # ============================================================
 
-if __name__ == "__main__":
-    main()
+st.divider()
+
+footer_col1, footer_col2 = st.columns(2)
+
+with footer_col1:
+
+    st.markdown(
+        """
+<div class="registry-version">
+    South Sudan National Registry •
+    Registry Platform • Version 1.0.0
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with footer_col2:
+
+    st.markdown(
+        """
+<div class="registry-version">
+    Registry data should be treated as authoritative only
+    after verification and appropriate administrative approval.
+</div>
+        """,
+        unsafe_allow_html=True,
+)
