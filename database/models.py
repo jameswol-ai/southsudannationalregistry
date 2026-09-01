@@ -15,7 +15,7 @@ Shared architecture:
             |
         Streamlit AI Studio
 
-The database models are intentionally independent of either frontend.
+The database models are independent of the frontend.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 
-from .database import Base
+from database.database import Base
 
 
 # ============================================================
@@ -48,22 +48,8 @@ from .database import Base
 # ============================================================
 
 class Citizen(Base):
-    """
-    Master citizen record.
-
-    A Citizen may have:
-
-        - one Household
-        - many Civil Events
-        - many Identity Documents
-        - one Voter Record
-    """
 
     __tablename__ = "citizens"
-
-    # --------------------------------------------------------
-    # Primary Identity
-    # --------------------------------------------------------
 
     id: Mapped[str] = mapped_column(
         String(64),
@@ -99,6 +85,7 @@ class Citizen(Base):
     age: Mapped[int] = mapped_column(
         Integer,
         default=0,
+        nullable=False,
     )
 
     gender: Mapped[str] = mapped_column(
@@ -119,10 +106,6 @@ class Citizen(Base):
         nullable=False,
     )
 
-    # --------------------------------------------------------
-    # Contact
-    # --------------------------------------------------------
-
     phone_number: Mapped[Optional[str]] = mapped_column(
         String(50),
         index=True,
@@ -141,13 +124,10 @@ class Citizen(Base):
         String(50),
     )
 
-    # --------------------------------------------------------
-    # Demographics
-    # --------------------------------------------------------
-
     tribe: Mapped[str] = mapped_column(
         String(150),
         default="",
+        nullable=False,
     )
 
     sub_tribe_or_clan: Mapped[Optional[str]] = mapped_column(
@@ -157,27 +137,27 @@ class Citizen(Base):
     native_language: Mapped[str] = mapped_column(
         String(150),
         default="",
+        nullable=False,
     )
-
-    # --------------------------------------------------------
-    # Location
-    # --------------------------------------------------------
 
     state_or_region: Mapped[str] = mapped_column(
         String(150),
         default="",
         index=True,
+        nullable=False,
     )
 
     county_or_payam: Mapped[str] = mapped_column(
         String(150),
         default="",
         index=True,
+        nullable=False,
     )
 
     sub_county_or_boma: Mapped[str] = mapped_column(
         String(150),
         default="",
+        nullable=False,
     )
 
     boma: Mapped[Optional[str]] = mapped_column(
@@ -189,6 +169,7 @@ class Citizen(Base):
         String(255),
         default="",
         index=True,
+        nullable=False,
     )
 
     residential_address: Mapped[Optional[str]] = mapped_column(
@@ -198,11 +179,8 @@ class Citizen(Base):
     duration_of_stay_years: Mapped[float] = mapped_column(
         Float,
         default=0.0,
+        nullable=False,
     )
-
-    # --------------------------------------------------------
-    # Household
-    # --------------------------------------------------------
 
     household_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey(
@@ -224,16 +202,6 @@ class Citizen(Base):
         nullable=False,
     )
 
-    household: Mapped[Optional["Household"]] = relationship(
-        "Household",
-        back_populates="members",
-        foreign_keys=[household_id],
-    )
-
-    # --------------------------------------------------------
-    # Education
-    # --------------------------------------------------------
-
     education_level: Mapped[str] = mapped_column(
         String(150),
         default="None / Informal",
@@ -245,10 +213,6 @@ class Citizen(Base):
         default=False,
         nullable=False,
     )
-
-    # --------------------------------------------------------
-    # Employment
-    # --------------------------------------------------------
 
     employment_status: Mapped[str] = mapped_column(
         String(150),
@@ -272,10 +236,6 @@ class Citizen(Base):
         String(100),
     )
 
-    # --------------------------------------------------------
-    # Special Needs
-    # --------------------------------------------------------
-
     has_special_needs_or_disability: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -293,10 +253,6 @@ class Citizen(Base):
     father_alive: Mapped[Optional[bool]] = mapped_column(
         Boolean,
     )
-
-    # --------------------------------------------------------
-    # Elections
-    # --------------------------------------------------------
 
     voter_id_number: Mapped[Optional[str]] = mapped_column(
         String(100),
@@ -333,27 +289,21 @@ class Citizen(Base):
         DateTime,
     )
 
-    # --------------------------------------------------------
-    # Enumeration
-    # --------------------------------------------------------
-
     enumerator_name: Mapped[str] = mapped_column(
         String(255),
         default="",
+        nullable=False,
     )
 
     enumerator_badge_id: Mapped[str] = mapped_column(
         String(100),
         default="",
+        nullable=False,
     )
 
     enumeration_date: Mapped[Optional[date]] = mapped_column(
         Date,
     )
-
-    # --------------------------------------------------------
-    # Verification
-    # --------------------------------------------------------
 
     verification_status: Mapped[str] = mapped_column(
         String(100),
@@ -378,10 +328,6 @@ class Citizen(Base):
         String(255),
     )
 
-    # --------------------------------------------------------
-    # Timestamps
-    # --------------------------------------------------------
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
@@ -395,9 +341,11 @@ class Citizen(Base):
         nullable=False,
     )
 
-    # --------------------------------------------------------
-    # Relationships
-    # --------------------------------------------------------
+    household: Mapped[Optional["Household"]] = relationship(
+        "Household",
+        back_populates="members",
+        foreign_keys=[household_id],
+    )
 
     civil_events: Mapped[list["CivilEvent"]] = relationship(
         "CivilEvent",
@@ -436,11 +384,6 @@ class Citizen(Base):
 # ============================================================
 
 class Household(Base):
-    """
-    Registered household.
-
-    A household may contain multiple citizens.
-    """
 
     __tablename__ = "households"
 
@@ -516,16 +459,6 @@ class Household(Base):
 # ============================================================
 
 class CivilEvent(Base):
-    """
-    Civil registration event.
-
-    Supported event types include:
-
-        Birth
-        Death
-        Marriage
-        Divorce
-    """
 
     __tablename__ = "civil_events"
 
@@ -588,7 +521,7 @@ class CivilEvent(Base):
         nullable=False,
     )
 
-    citizen: Mapped[Optional[Citizen]] = relationship(
+    citizen: Mapped[Optional["Citizen"]] = relationship(
         "Citizen",
         back_populates="civil_events",
     )
@@ -599,9 +532,6 @@ class CivilEvent(Base):
 # ============================================================
 
 class Document(Base):
-    """
-    Identity or civil registration document.
-    """
 
     __tablename__ = "documents"
 
@@ -658,7 +588,7 @@ class Document(Base):
         nullable=False,
     )
 
-    citizen: Mapped[Optional[Citizen]] = relationship(
+    citizen: Mapped[Optional["Citizen"]] = relationship(
         "Citizen",
         back_populates="documents",
     )
@@ -669,9 +599,6 @@ class Document(Base):
 # ============================================================
 
 class VoterRecord(Base):
-    """
-    Electoral record associated with exactly one citizen.
-    """
 
     __tablename__ = "voter_records"
 
@@ -740,7 +667,7 @@ class VoterRecord(Base):
         nullable=False,
     )
 
-    citizen: Mapped[Citizen] = relationship(
+    citizen: Mapped["Citizen"] = relationship(
         "Citizen",
         back_populates="voter_record",
     )
@@ -751,17 +678,6 @@ class VoterRecord(Base):
 # ============================================================
 
 class AdministrativeUnit(Base):
-    """
-    Administrative hierarchy.
-
-    Example:
-
-        Country
-          └── State
-                └── County
-                      └── Payam
-                            └── Boma
-    """
 
     __tablename__ = "administrative_units"
 
@@ -836,12 +752,6 @@ class AdministrativeUnit(Base):
 # ============================================================
 
 class AuditLog(Base):
-    """
-    Immutable-style application audit event.
-
-    Audit records should normally be created by services rather
-    than directly by frontend modules.
-    """
 
     __tablename__ = "audit_logs"
 
@@ -885,8 +795,3 @@ class AuditLog(Base):
     details: Mapped[Optional[str]] = mapped_column(
         Text,
     )
-
-
-# ============================================================
-# END OF MODELS
-# ============================================================
