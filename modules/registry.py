@@ -12,15 +12,32 @@ Architecture:
     modules.registry
           |
     +-----+-------------------------------+
-    |     |                               |
-    v     v                               v
-  Civil Identity   Elections ...   Administration
-    |
-    v
-  services
-    |
-    v
-  database
+    |                                     |
+    v                                     v
+Registry Modules                      Module Status
+    |                                     |
+    +----------------+--------------------+
+                     |
+                     v
+                 services
+                     |
+                     v
+                  database
+
+
+Design goals
+------------
+1. A broken module must not crash Streamlit startup.
+2. Every module is loaded independently.
+3. Every module must expose a callable render() function.
+4. The registry exposes both:
+       get_modules()
+       get_available_modules()
+       get_unavailable_modules()
+       get_module()
+       render_module()
+5. Import errors are captured and displayed as module status.
+6. The registry does not import application modules eagerly.
 """
 
 from __future__ import annotations
@@ -29,7 +46,7 @@ import importlib
 import logging
 from dataclasses import dataclass
 from types import ModuleType
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 # ============================================================
@@ -45,27 +62,35 @@ logger = logging.getLogger(
 # TYPES
 # ============================================================
 
-RenderFunction = Callable[[], object]
+RenderFunction = Callable[[], Any]
 
 
 # ============================================================
-# REGISTRY MODULE
+# MODULE DATA MODEL
 # ============================================================
 
 @dataclass(frozen=True)
 class RegistryModule:
     """
-    Description of a Streamlit registry module.
+    Metadata and runtime information for one registry module.
     """
 
     key: str
+
     label: str
+
     module_path: str
+
     category: str
+
     icon: str = ""
+
     description: str = ""
+
     render: Optional[RenderFunction] = None
+
     available: bool = False
+
     error: Optional[str] = None
 
 
@@ -73,7 +98,8 @@ class RegistryModule:
 # MODULE DEFINITIONS
 # ============================================================
 
-MODULE_DEFINITIONS = [
+MODULE_DEFINITIONS: list[dict[str, str]] = [
+
     {
         "key": "civil_registration",
         "label": "Civil Registration",
@@ -85,6 +111,7 @@ MODULE_DEFINITIONS = [
             "registration."
         ),
     },
+
     {
         "key": "identity",
         "label": "Identity",
@@ -96,6 +123,7 @@ MODULE_DEFINITIONS = [
             "identity management."
         ),
     },
+
     {
         "key": "elections",
         "label": "Elections",
@@ -107,6 +135,7 @@ MODULE_DEFINITIONS = [
             "polling operations."
         ),
     },
+
     {
         "key": "documents",
         "label": "Documents",
@@ -117,6 +146,7 @@ MODULE_DEFINITIONS = [
             "Identity and civil registration documents."
         ),
     },
+
     {
         "key": "verification",
         "label": "Verification",
@@ -124,9 +154,11 @@ MODULE_DEFINITIONS = [
         "category": "Registry",
         "icon": "Verify",
         "description": (
-            "Citizen and document verification workflows."
+            "Citizen and document verification "
+            "workflows."
         ),
     },
+
     {
         "key": "reports",
         "label": "Reports",
@@ -134,9 +166,11 @@ MODULE_DEFINITIONS = [
         "category": "Analytics",
         "icon": "Reports",
         "description": (
-            "Registry statistics, analytics and reports."
+            "Registry statistics, analytics and "
+            "reports."
         ),
     },
+
     {
         "key": "ai_studio",
         "label": "AI Studio",
@@ -148,6 +182,7 @@ MODULE_DEFINITIONS = [
             "administrative workflows."
         ),
     },
+
     {
         "key": "administration",
         "label": "Administration",
@@ -163,28 +198,43 @@ MODULE_DEFINITIONS = [
 
 
 # ============================================================
-# LOAD ONE MODULE
+# MODULE LOADER
 # ============================================================
 
 def _load_module(
-    definition: dict,
+    definition: dict[str, str],
 ) -> RegistryModule:
     """
-    Safely load one registry module.
+    Safely import one registry module.
 
-    A failure in one module does not prevent the
-    entire Streamlit application from starting.
+    IMPORTANT:
+    Any exception raised by the module is captured here.
+    The exception therefore cannot prevent the rest of
+    the registry from loading.
     """
 
     key = definition["key"]
+
     label = definition["label"]
+
     module_path = definition["module_path"]
+
     category = definition["category"]
-    icon = definition.get("icon", "")
+
+    icon = definition.get(
+        "icon",
+        "",
+    )
+
     description = definition.get(
         "description",
         "",
     )
+
+
+    # --------------------------------------------------------
+    # IMPORT MODULE
+    # --------------------------------------------------------
 
     try:
 
@@ -215,11 +265,17 @@ def _load_module(
             error=error,
         )
 
+
+    # --------------------------------------------------------
+    # FIND render()
+    # --------------------------------------------------------
+
     render = getattr(
         module,
         "render",
         None,
     )
+
 
     if not callable(render):
 
@@ -228,7 +284,9 @@ def _load_module(
             "a callable render() function."
         )
 
-        logger.error(error)
+        logger.error(
+            error
+        )
 
         return RegistryModule(
             key=key,
@@ -241,6 +299,16 @@ def _load_module(
             available=False,
             error=error,
         )
+
+
+    # --------------------------------------------------------
+    # SUCCESS
+    # --------------------------------------------------------
+
+    logger.info(
+        "Registry module loaded: %s",
+        module_path,
+    )
 
     return RegistryModule(
         key=key,
@@ -261,23 +329,87 @@ def _load_module(
 
 def _load_modules() -> dict[str, RegistryModule]:
     """
-    Load all configured registry modules.
+    Load every configured registry module independently.
+
+    Returns
+    -------
+    dict
+        Dictionary keyed by module key.
     """
 
     modules: dict[str, RegistryModule] = {}
 
+
     for definition in MODULE_DEFINITIONS:
 
-        module = _load_module(
-            definition
-        )
+        try:
 
-        modules[module.key] = module
+            module = _load_module(
+                definition
+            )
+
+            modules[module.key] = module
+
+        except Exception as exc:
+
+            # This is an additional defensive layer.
+            #
+            # _load_module() already catches normal import
+            # failures, but this protects the registry from
+            # unexpected loader failures.
+
+            key = definition.get(
+                "key",
+                "unknown",
+            )
+
+            error = (
+                f"{type(exc).__name__}: {exc}"
+            )
+
+            logger.exception(
+                "Unexpected error loading module '%s'",
+                key,
+            )
+
+            modules[key] = RegistryModule(
+                key=key,
+                label=definition.get(
+                    "label",
+                    key,
+                ),
+                module_path=definition.get(
+                    "module_path",
+                    "",
+                ),
+                category=definition.get(
+                    "category",
+                    "Registry",
+                ),
+                icon=definition.get(
+                    "icon",
+                    "",
+                ),
+                description=definition.get(
+                    "description",
+                    "",
+                ),
+                render=None,
+                available=False,
+                error=error,
+            )
+
 
     return modules
 
 
-MODULES = _load_modules()
+# ============================================================
+# GLOBAL MODULE REGISTRY
+# ============================================================
+
+MODULES: dict[str, RegistryModule] = (
+    _load_modules()
+)
 
 
 # ============================================================
@@ -286,12 +418,9 @@ MODULES = _load_modules()
 
 def get_modules() -> list[RegistryModule]:
     """
-    Return all registered modules.
+    Return all configured registry modules.
 
-    This is the primary function used by streamlit_app.py.
-
-    Unavailable modules are included so the application can
-    display their status instead of silently hiding them.
+    The order follows MODULE_DEFINITIONS.
     """
 
     return list(
@@ -301,19 +430,22 @@ def get_modules() -> list[RegistryModule]:
 
 def get_available_modules() -> list[RegistryModule]:
     """
-    Return only successfully loaded modules.
+    Return only modules that successfully imported
+    and expose a callable render() function.
     """
 
     return [
         module
         for module in MODULES.values()
         if module.available
+        and callable(module.render)
     ]
 
 
 def get_unavailable_modules() -> list[RegistryModule]:
     """
-    Return modules that failed to load.
+    Return modules that failed to load or do not expose
+    a valid render() function.
     """
 
     return [
@@ -327,12 +459,34 @@ def get_module(
     key: str,
 ) -> Optional[RegistryModule]:
     """
-    Return a registered module by key.
+    Return one registry module by key.
+
+    Example
+    -------
+    get_module("identity")
     """
 
     return MODULES.get(
         key
     )
+
+
+def get_module_by_label(
+    label: str,
+) -> Optional[RegistryModule]:
+    """
+    Return a module by display label.
+    """
+
+    normalized = label.strip().lower()
+
+    for module in MODULES.values():
+
+        if module.label.strip().lower() == normalized:
+
+            return module
+
+    return None
 
 
 def get_modules_by_category(
@@ -342,16 +496,19 @@ def get_modules_by_category(
     Return available modules belonging to a category.
     """
 
+    normalized = category.strip().lower()
+
     return [
         module
         for module in get_available_modules()
-        if module.category == category
+        if module.category.strip().lower()
+        == normalized
     ]
 
 
 def get_module_keys() -> list[str]:
     """
-    Return all registered module keys.
+    Return all configured module keys.
     """
 
     return list(
@@ -359,20 +516,34 @@ def get_module_keys() -> list[str]:
     )
 
 
+def get_module_labels() -> list[str]:
+    """
+    Return all configured display labels.
+    """
+
+    return [
+        module.label
+        for module in MODULES.values()
+    ]
+
+
 def is_module_available(
     key: str,
 ) -> bool:
     """
-    Determine whether a module is available.
+    Determine whether a module is operational.
     """
 
     module = get_module(
         key
     )
 
+    if module is None:
+
+        return False
+
     return bool(
-        module
-        and module.available
+        module.available
         and callable(module.render)
     )
 
@@ -383,16 +554,99 @@ def is_module_available(
 
 def render_module(
     key: str,
-) -> object:
+) -> Any:
     """
-    Render a module by key.
+    Render a registry module.
 
-    Raises:
-        KeyError:
-            Unknown module.
+    Parameters
+    ----------
+    key:
+        Registry module key.
 
-        RuntimeError:
-            Module unavailable.
+    Raises
+    ------
+    KeyError
+        If the module does not exist.
+
+    RuntimeError
+        If the module is unavailable.
+
+    Exception
+        Any runtime exception raised by the module's
+        render() function is propagated to the caller.
+        streamlit_app.py is responsible for presenting
+        the error to the user.
+    """
+
+    module = get_module(
+        key
+    )
+
+
+    if module is None:
+
+        raise KeyError(
+            f"Unknown registry module: {key}"
+        )
+
+
+    if not module.available:
+
+        raise RuntimeError(
+            (
+                f"Registry module '{key}' is unavailable. "
+                f"{module.error or 'No error information available.'}"
+            )
+        )
+
+
+    if not callable(module.render):
+
+        raise RuntimeError(
+            (
+                f"Registry module '{key}' does not "
+                "have a callable render() function."
+            )
+        )
+
+
+    return module.render()
+
+
+# ============================================================
+# MODULE STATUS
+# ============================================================
+
+def module_status() -> list[dict[str, Any]]:
+    """
+    Return module status information.
+
+    Suitable for:
+        - Streamlit administration
+        - debugging
+        - API responses
+        - system health dashboards
+    """
+
+    return [
+        {
+            "key": module.key,
+            "label": module.label,
+            "module_path": module.module_path,
+            "category": module.category,
+            "icon": module.icon,
+            "available": module.available,
+            "error": module.error,
+        }
+        for module in MODULES.values()
+    ]
+
+
+def get_module_status(
+    key: str,
+) -> Optional[dict[str, Any]]:
+    """
+    Return status information for one module.
     """
 
     module = get_module(
@@ -401,54 +655,89 @@ def render_module(
 
     if module is None:
 
-        raise KeyError(
-            f"Unknown registry module: {key}"
-        )
+        return None
 
-    if not module.available:
-
-        raise RuntimeError(
-            f"Registry module '{key}' is unavailable. "
-            f"{module.error or 'Unknown import error.'}"
-        )
-
-    if not callable(module.render):
-
-        raise RuntimeError(
-            f"Registry module '{key}' does not expose "
-            "a callable render() function."
-        )
-
-    return module.render()
+    return {
+        "key": module.key,
+        "label": module.label,
+        "module_path": module.module_path,
+        "category": module.category,
+        "icon": module.icon,
+        "available": module.available,
+        "error": module.error,
+    }
 
 
 # ============================================================
-# STATUS
+# REGISTRY HEALTH
 # ============================================================
 
-def module_status() -> list[dict[str, object]]:
+def registry_health() -> dict[str, Any]:
     """
-    Return registry module status.
-
-    Suitable for administration/debugging screens.
+    Return overall registry health information.
     """
 
-    return [
-        {
-            "key": module.key,
-            "label": module.label,
-            "category": module.category,
-            "module_path": module.module_path,
-            "available": module.available,
-            "error": module.error,
-        }
-        for module in MODULES.values()
+    modules = get_modules()
+
+    available = [
+        module
+        for module in modules
+        if module.available
+    ]
+
+    unavailable = [
+        module
+        for module in modules
+        if not module.available
     ]
 
 
+    total = len(
+        modules
+    )
+
+    operational = len(
+        available
+    )
+
+    failed = len(
+        unavailable
+    )
+
+
+    if total == 0:
+
+        status = "empty"
+
+    elif failed == 0:
+
+        status = "healthy"
+
+    elif operational > 0:
+
+        status = "degraded"
+
+    else:
+
+        status = "unavailable"
+
+
+    return {
+        "status": status,
+        "total_modules": total,
+        "operational_modules": operational,
+        "unavailable_modules": failed,
+        "modules": module_status(),
+    }
+
+
+# ============================================================
+# DEBUGGING
+# ============================================================
+
 def print_module_status() -> None:
     """
-    Write module status to the application log.
+    Print module status to application logs.
     """
 
     for module in MODULES.values():
@@ -466,4 +755,64 @@ def print_module_status() -> None:
                 "Registry module unavailable: %s — %s",
                 module.key,
                 module.error,
+            )
+
+
+# ============================================================
+# REFRESH
+# ============================================================
+
+def reload_modules() -> dict[str, RegistryModule]:
+    """
+    Reload all configured registry modules.
+
+    This is primarily useful during development.
+
+    The global MODULES dictionary is replaced with a
+    freshly loaded registry.
+    """
+
+    global MODULES
+
+    MODULES = _load_modules()
+
+    return MODULES
+
+
+# ============================================================
+# OPTIONAL STARTUP DIAGNOSTICS
+# ============================================================
+
+if __name__ == "__main__":
+
+    print(
+        "South Sudan National Registry"
+    )
+
+    print(
+        "Module Registry Status"
+    )
+
+    print(
+        "======================="
+    )
+
+    for module in get_modules():
+
+        status = (
+            "AVAILABLE"
+            if module.available
+            else "UNAVAILABLE"
         )
+
+        print(
+            f"{module.key:25} "
+            f"{status:12} "
+            f"{module.module_path}"
+        )
+
+        if module.error:
+
+            print(
+                f"    ERROR: {module.error}"
+            )
