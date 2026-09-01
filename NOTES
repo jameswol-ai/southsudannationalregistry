@@ -119,3 +119,38 @@ services/
 ├── identity_service.py
 ├── verification_service.py
 └── reporting_service.py
+
+
+southsudannationalregistry/
+│
+├── database/
+│   ├── __init__.py
+│   ├── database.py
+│   ├── models.py
+│   └── seed.py
+│
+├── services/
+│   ├── __init__.py
+│   ├── citizen_service.py
+│   ├── household_service.py
+│   ├── registration_service.py
+│   ├── identity_service.py
+│   ├── verification_service.py
+│   └── reporting_service.py
+│
+├── modules/
+│   ├── __init__.py
+│   ├── registry.py
+│   ├── overview.py
+│   ├── citizens.py
+│   ├── households.py
+│   ├── civil_registration.py
+│   ├── identity.py
+│   ├── elections.py
+│   ├── documents.py
+│   ├── verification.py
+│   ├── reports.py
+│   ├── ai_studio.py
+│   └── administration.py
+│
+└── streamlit_app.py
