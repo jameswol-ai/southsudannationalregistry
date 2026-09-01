@@ -103,3 +103,19 @@ southsudannationalregistry/
        └────────┴────────┴──┬────┴──────────┘
                             │
                  Verification + Audit
+
+
+database/
+├── __init__.py
+├── database.py
+├── models.py
+└── seed.py
+
+services/
+├── __init__.py
+├── citizen_service.py
+├── household_service.py
+├── registration_service.py
+├── identity_service.py
+├── verification_service.py
+└── reporting_service.py
