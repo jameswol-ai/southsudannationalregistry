@@ -20,23 +20,15 @@ st.set_page_config(
     page_title="South Sudan National Registry",
     page_icon="🇸🇸",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
 # ============================================================
-# APPLICATION PATHS
+# APPLICATION
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-ASSETS_DIR = BASE_DIR / "assets"
-
-EMBLEM_PATH = ASSETS_DIR / "south_sudan_emblem.png"
-
-
-# ============================================================
-# APPLICATION INFORMATION
-# ============================================================
 
 APP_TITLE = "South Sudan National Registry"
 
@@ -56,73 +48,22 @@ if "active_page" not in st.session_state:
 
 
 # ============================================================
-# SAFE EMBLEM HANDLING
+# NAVIGATION
 # ============================================================
 
-def get_valid_emblem_bytes() -> bytes | None:
-    """
-    Safely read the Registry emblem.
-
-    The application deliberately does not use Pillow here.
-
-    A valid PNG begins with:
-        89 50 4E 47 0D 0A 1A 0A
-
-    If the file is missing, empty, corrupt, or not actually a
-    PNG, None is returned and the application uses the SS
-    fallback emblem.
-    """
-
-    try:
-        if not EMBLEM_PATH.exists():
-            return None
-
-        if not EMBLEM_PATH.is_file():
-            return None
-
-        data = EMBLEM_PATH.read_bytes()
-
-        if not data:
-            return None
-
-        png_signature = b"\x89PNG\r\n\x1a\n"
-
-        if not data.startswith(png_signature):
-            return None
-
-        return data
-
-    except (OSError, IOError):
-        return None
+PAGES = [
+    "Overview",
+    "Population",
+    "Civil Registration",
+    "Identity",
+    "Elections",
+    "Reports",
+    "Administration",
+]
 
 
-def render_registry_emblem() -> None:
-    """
-    Render the Registry emblem safely.
-
-    A bad image file can never terminate the application.
-    """
-
-    emblem = get_valid_emblem_bytes()
-
-    if emblem is not None:
-        try:
-            st.image(
-                emblem,
-                width=78,
-            )
-            return
-        except Exception:
-            pass
-
-    st.markdown(
-        """
-        <div class="registry-fallback">
-            SS
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+if st.session_state.active_page not in PAGES:
+    st.session_state.active_page = "Overview"
 
 
 # ============================================================
@@ -143,7 +84,7 @@ st.markdown(
 
     .block-container {
         max-width: 1500px;
-        padding-top: 1.5rem;
+        padding-top: 1.2rem;
         padding-bottom: 3rem;
     }
 
@@ -153,56 +94,73 @@ st.markdown(
        ======================================================== */
 
     .registry-header {
+        width: 100%;
+
         display: flex;
         align-items: center;
+
         gap: 18px;
 
-        padding: 18px 24px;
+        padding: 18px 22px;
+
+        margin-bottom: 18px;
 
         background: #ffffff;
 
         border: 1px solid #e2e8f0;
+
         border-radius: 14px;
 
         box-shadow:
             0 2px 8px rgba(15, 23, 42, 0.05);
 
-        margin-bottom: 18px;
+        box-sizing: border-box;
     }
 
 
-    .registry-fallback {
-        width: 68px;
-        height: 68px;
+    .registry-emblem {
+        width: 72px;
+        height: 72px;
 
-        border-radius: 50%;
+        min-width: 72px;
 
         display: flex;
         align-items: center;
         justify-content: center;
 
+        border-radius: 50%;
+
         background: #00843d;
-
-        color: #ffffff;
-
-        font-size: 20px;
-        font-weight: 800;
 
         border: 4px solid #fbbf24;
 
-        box-sizing: border-box;
+        color: #ffffff;
+
+        font-size: 21px;
+
+        font-weight: 900;
+
+        letter-spacing: 1px;
+
+        box-shadow:
+            0 4px 12px rgba(15, 23, 42, 0.12);
     }
 
 
     .registry-brand {
         display: flex;
+
         flex-direction: column;
+
         justify-content: center;
+
+        min-width: 0;
     }
 
 
     .registry-title {
         font-size: 26px;
+
         font-weight: 800;
 
         color: #172033;
@@ -222,20 +180,14 @@ st.markdown(
     }
 
 
-    .registry-version {
-        font-size: 11px;
+    .registry-status {
+        margin-left: auto;
 
-        color: #64748b;
+        min-width: 125px;
 
-        margin-top: 4px;
-
-        white-space: nowrap;
+        text-align: right;
     }
 
-
-    /* ========================================================
-       SYSTEM STATUS
-       ======================================================== */
 
     .status-online {
         display: inline-flex;
@@ -244,16 +196,17 @@ st.markdown(
 
         gap: 6px;
 
+        color: #15803d;
+
         font-size: 12px;
 
-        font-weight: 600;
-
-        color: #15803d;
+        font-weight: 700;
     }
 
 
     .status-dot {
         width: 8px;
+
         height: 8px;
 
         border-radius: 50%;
@@ -262,46 +215,73 @@ st.markdown(
     }
 
 
+    .registry-version {
+        margin-top: 5px;
+
+        color: #94a3b8;
+
+        font-size: 11px;
+    }
+
+
     /* ========================================================
-       PAGE TITLES
+       NAVIGATION
+       ======================================================== */
+
+    div[data-testid="stRadio"] > div {
+        gap: 6px;
+    }
+
+
+    div[data-testid="stRadio"] label {
+        border-radius: 8px;
+
+        padding: 7px 12px;
+
+        font-size: 13px;
+    }
+
+
+    /* ========================================================
+       PAGE
        ======================================================== */
 
     .page-title {
+        margin-top: 12px;
+
+        margin-bottom: 4px;
+
         font-size: 30px;
 
         font-weight: 800;
 
         color: #172033;
-
-        margin-top: 10px;
-
-        margin-bottom: 4px;
     }
 
 
     .page-description {
-        color: #64748b;
+        margin-bottom: 22px;
 
         font-size: 14px;
 
-        margin-bottom: 20px;
+        color: #64748b;
     }
 
 
     /* ========================================================
-       KPI CARDS
+       KPI
        ======================================================== */
 
     .kpi-card {
+        min-height: 125px;
+
+        padding: 18px;
+
         background: #ffffff;
 
         border: 1px solid #e2e8f0;
 
         border-radius: 12px;
-
-        padding: 18px;
-
-        min-height: 125px;
 
         box-shadow:
             0 2px 8px rgba(15, 23, 42, 0.04);
@@ -311,29 +291,31 @@ st.markdown(
 
 
     .kpi-label {
-        font-size: 12px;
+        margin-bottom: 8px;
 
         color: #64748b;
 
-        margin-bottom: 8px;
+        font-size: 12px;
     }
 
 
     .kpi-value {
+        color: #172033;
+
         font-size: 30px;
 
         font-weight: 800;
 
-        color: #172033;
+        line-height: 1;
     }
 
 
     .kpi-description {
-        font-size: 11px;
+        margin-top: 8px;
 
         color: #94a3b8;
 
-        margin-top: 5px;
+        font-size: 11px;
     }
 
 
@@ -342,42 +324,42 @@ st.markdown(
        ======================================================== */
 
     .module-card {
+        min-height: 145px;
+
+        padding: 20px;
+
+        margin-bottom: 15px;
+
         background: #ffffff;
 
         border: 1px solid #e2e8f0;
 
         border-radius: 12px;
 
-        padding: 20px;
-
-        min-height: 150px;
-
         box-shadow:
             0 2px 8px rgba(15, 23, 42, 0.04);
-
-        margin-bottom: 15px;
 
         box-sizing: border-box;
     }
 
 
     .module-title {
-        font-size: 17px;
-
-        font-weight: 700;
+        margin-bottom: 8px;
 
         color: #172033;
 
-        margin-bottom: 7px;
+        font-size: 17px;
+
+        font-weight: 700;
     }
 
 
     .module-description {
+        color: #64748b;
+
         font-size: 13px;
 
-        line-height: 1.5;
-
-        color: #64748b;
+        line-height: 1.55;
     }
 
 
@@ -386,17 +368,17 @@ st.markdown(
        ======================================================== */
 
     .registry-footer {
-        margin-top: 40px;
+        margin-top: 45px;
 
         padding-top: 18px;
 
         border-top: 1px solid #e2e8f0;
 
-        text-align: center;
+        color: #94a3b8;
 
         font-size: 11px;
 
-        color: #94a3b8;
+        text-align: center;
     }
 
 
@@ -406,12 +388,31 @@ st.markdown(
 
     @media (max-width: 768px) {
 
+        .registry-header {
+            gap: 12px;
+
+            padding: 14px;
+        }
+
+        .registry-emblem {
+            width: 58px;
+            height: 58px;
+
+            min-width: 58px;
+
+            font-size: 17px;
+        }
+
         .registry-title {
-            font-size: 20px;
+            font-size: 19px;
         }
 
         .registry-subtitle {
-            font-size: 11px;
+            font-size: 10px;
+        }
+
+        .registry-status {
+            display: none;
         }
 
         .page-title {
@@ -430,19 +431,14 @@ st.markdown(
 # HEADER
 # ============================================================
 
-header_left, header_brand, header_status = st.columns(
-    [0.12, 0.68, 0.20],
-    vertical_alignment="center",
-)
+st.markdown(
+    """
+    <div class="registry-header">
 
+        <div class="registry-emblem">
+            SS
+        </div>
 
-with header_left:
-    render_registry_emblem()
-
-
-with header_brand:
-    st.markdown(
-        """
         <div class="registry-brand">
 
             <div class="registry-title">
@@ -455,15 +451,8 @@ with header_brand:
             </div>
 
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-
-with header_status:
-    st.markdown(
-        f"""
-        <div style="text-align:right">
+        <div class="registry-status">
 
             <div class="status-online">
                 <span class="status-dot"></span>
@@ -471,48 +460,34 @@ with header_status:
             </div>
 
             <div class="registry-version">
-                Version {APP_VERSION}
+                Version 1.0.0
             </div>
 
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
 # NAVIGATION
 # ============================================================
 
-PAGES = [
-    "Overview",
-    "Population",
-    "Civil Registration",
-    "Identity",
-    "Elections",
-    "Reports",
-    "Administration",
-]
-
-
-current_page = st.session_state.active_page
-
-if current_page not in PAGES:
-    current_page = "Overview"
-    st.session_state.active_page = current_page
-
-
 selected_page = st.radio(
     "Registry Navigation",
     PAGES,
-    index=PAGES.index(current_page),
+    index=PAGES.index(st.session_state.active_page),
     horizontal=True,
     label_visibility="collapsed",
 )
 
 
 if selected_page != st.session_state.active_page:
+
     st.session_state.active_page = selected_page
+
     st.rerun()
 
 
@@ -522,35 +497,36 @@ if selected_page != st.session_state.active_page:
 
 with st.sidebar:
 
-    st.markdown("### Registry")
+    st.markdown("## Registry")
 
     st.caption(
-        "National information management platform"
+        "South Sudan National Registry"
     )
 
     st.divider()
 
-    st.markdown("#### System Status")
+    st.markdown("### System")
 
     st.success(
-        "Registry services operational"
+        "Application Online"
     )
 
-    st.info(
-        "Application running"
-    )
-
-    st.divider()
-
-    st.markdown("#### Current Module")
+    st.markdown("### Active Module")
 
     st.write(
         st.session_state.active_page
     )
 
+    st.divider()
+
+    st.caption(
+        "National Population • Civil Registration • "
+        "Identity • Elections"
+    )
+
 
 # ============================================================
-# PAGE HELPERS
+# HELPERS
 # ============================================================
 
 def page_header(
@@ -566,29 +542,6 @@ def page_header(
 
         <div class="page-description">
             {description}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def module_card(
-    title: str,
-    description: str,
-) -> None:
-
-    st.markdown(
-        f"""
-        <div class="module-card">
-
-            <div class="module-title">
-                {title}
-            </div>
-
-            <div class="module-description">
-                {description}
-            </div>
-
         </div>
         """,
         unsafe_allow_html=True,
@@ -623,6 +576,29 @@ def kpi_card(
     )
 
 
+def module_card(
+    title: str,
+    description: str,
+) -> None:
+
+    st.markdown(
+        f"""
+        <div class="module-card">
+
+            <div class="module-title">
+                {title}
+            </div>
+
+            <div class="module-description">
+                {description}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ============================================================
 # OVERVIEW
 # ============================================================
@@ -631,18 +607,22 @@ def render_overview() -> None:
 
     page_header(
         "Overview",
-        "National Registry system overview and operational status.",
+        (
+            "National Registry system overview, "
+            "services and operational status."
+        ),
     )
 
 
     # --------------------------------------------------------
-    # KPI SECTION
+    # KPIs
     # --------------------------------------------------------
 
     col1, col2, col3, col4 = st.columns(4)
 
 
     with col1:
+
         kpi_card(
             "Registered Population",
             "0",
@@ -651,6 +631,7 @@ def render_overview() -> None:
 
 
     with col2:
+
         kpi_card(
             "Civil Records",
             "0",
@@ -659,6 +640,7 @@ def render_overview() -> None:
 
 
     with col3:
+
         kpi_card(
             "Identity Records",
             "0",
@@ -667,6 +649,7 @@ def render_overview() -> None:
 
 
     with col4:
+
         kpi_card(
             "Election Records",
             "0",
@@ -674,7 +657,10 @@ def render_overview() -> None:
         )
 
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        "<br>",
+        unsafe_allow_html=True,
+    )
 
 
     # --------------------------------------------------------
@@ -693,7 +679,8 @@ def render_overview() -> None:
             "Population Registry",
             (
                 "Manage national population records, "
-                "households, persons and demographic information."
+                "households, persons and demographic "
+                "information."
             ),
         )
 
@@ -701,7 +688,8 @@ def render_overview() -> None:
             "Identity Management",
             (
                 "Manage national identity registration, "
-                "identification records and identity services."
+                "identification records and identity "
+                "services."
             ),
         )
 
@@ -719,8 +707,8 @@ def render_overview() -> None:
         module_card(
             "Elections",
             (
-                "Manage electoral registration, "
-                "voter records and election administration."
+                "Manage electoral registration, voter "
+                "records and election administration."
             ),
         )
 
@@ -730,8 +718,8 @@ def render_overview() -> None:
         module_card(
             "Reports & Analytics",
             (
-                "Generate operational reports, "
-                "statistical summaries and registry analytics."
+                "Generate operational reports, statistical "
+                "summaries and Registry analytics."
             ),
         )
 
@@ -848,8 +836,8 @@ def render_administration() -> None:
     page_header(
         "Administration",
         (
-            "System users, roles, permissions "
-            "and configuration."
+            "System users, roles, permissions, "
+            "security and configuration."
         ),
     )
 
@@ -859,7 +847,7 @@ def render_administration() -> None:
 
 
 # ============================================================
-# PAGE ROUTER
+# ROUTER
 # ============================================================
 
 if st.session_state.active_page == "Overview":
@@ -893,6 +881,7 @@ elif st.session_state.active_page == "Administration":
 else:
 
     st.session_state.active_page = "Overview"
+
     st.rerun()
 
 
@@ -913,4 +902,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True,
-            )
+)
