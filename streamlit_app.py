@@ -8,10 +8,8 @@ Streamlit Application
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import streamlit as st
-from PIL import Image, UnidentifiedImageError
 
 
 # ============================================================
@@ -27,18 +25,17 @@ st.set_page_config(
 
 
 # ============================================================
-# PATHS
+# APPLICATION PATHS
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-
 ASSETS_DIR = BASE_DIR / "assets"
 
 EMBLEM_PATH = ASSETS_DIR / "south_sudan_emblem.png"
 
 
 # ============================================================
-# APPLICATION CONSTANTS
+# APPLICATION INFORMATION
 # ============================================================
 
 APP_TITLE = "South Sudan National Registry"
@@ -57,105 +54,103 @@ APP_VERSION = "1.0.0"
 if "active_page" not in st.session_state:
     st.session_state.active_page = "Overview"
 
-if "theme" not in st.session_state:
-    st.session_state.theme = "Light"
-
 
 # ============================================================
-# SAFE IMAGE LOADER
+# SAFE EMBLEM HANDLING
 # ============================================================
 
-def load_valid_image(path: Path) -> Optional[Image.Image]:
+def get_valid_emblem_bytes() -> bytes | None:
     """
-    Safely load an image.
+    Safely read the Registry emblem.
 
-    Returns:
-        PIL.Image.Image if valid.
-        None if the file is missing, corrupt, or not an image.
+    The application deliberately does not use Pillow here.
 
-    This prevents PIL.UnidentifiedImageError from crashing
-    the entire Streamlit application.
+    A valid PNG begins with:
+        89 50 4E 47 0D 0A 1A 0A
+
+    If the file is missing, empty, corrupt, or not actually a
+    PNG, None is returned and the application uses the SS
+    fallback emblem.
     """
-
-    if not path.exists():
-        return None
-
-    if not path.is_file():
-        return None
 
     try:
-        # First validate the file.
-        with Image.open(path) as image:
-            image.verify()
+        if not EMBLEM_PATH.exists():
+            return None
 
-        # verify() invalidates the image object, so reopen it.
-        with Image.open(path) as image:
-            return image.convert("RGBA")
+        if not EMBLEM_PATH.is_file():
+            return None
 
-    except (
-        UnidentifiedImageError,
-        OSError,
-        ValueError,
-    ):
+        data = EMBLEM_PATH.read_bytes()
+
+        if not data:
+            return None
+
+        png_signature = b"\x89PNG\r\n\x1a\n"
+
+        if not data.startswith(png_signature):
+            return None
+
+        return data
+
+    except (OSError, IOError):
         return None
 
 
-# ============================================================
-# EMBLEM
-# ============================================================
-
-@st.cache_data(show_spinner=False)
-def get_emblem() -> Optional[bytes]:
+def render_registry_emblem() -> None:
     """
-    Load the Registry emblem as bytes.
+    Render the Registry emblem safely.
 
-    Returning bytes allows Streamlit to handle the image
-    independently of the original file object.
+    A bad image file can never terminate the application.
     """
 
-    image = load_valid_image(EMBLEM_PATH)
+    emblem = get_valid_emblem_bytes()
 
-    if image is None:
-        return None
+    if emblem is not None:
+        try:
+            st.image(
+                emblem,
+                width=78,
+            )
+            return
+        except Exception:
+            pass
 
-    from io import BytesIO
-
-    buffer = BytesIO()
-
-    image.save(
-        buffer,
-        format="PNG",
+    st.markdown(
+        """
+        <div class="registry-fallback">
+            SS
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    return buffer.getvalue()
-
 
 # ============================================================
-# CUSTOM CSS
+# CSS
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* --------------------------------------------------------
+    /* ========================================================
        GLOBAL
-    -------------------------------------------------------- */
+       ======================================================== */
 
     .stApp {
         background: #f6f8fa;
     }
 
     .block-container {
+        max-width: 1500px;
         padding-top: 1.5rem;
         padding-bottom: 3rem;
-        max-width: 1500px;
     }
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
        REGISTRY HEADER
-    -------------------------------------------------------- */
+       ======================================================== */
 
     .registry-header {
         display: flex;
@@ -164,7 +159,7 @@ st.markdown(
 
         padding: 18px 24px;
 
-        background: white;
+        background: #ffffff;
 
         border: 1px solid #e2e8f0;
         border-radius: 14px;
@@ -173,26 +168,6 @@ st.markdown(
             0 2px 8px rgba(15, 23, 42, 0.05);
 
         margin-bottom: 18px;
-    }
-
-
-    .registry-emblem {
-        width: 78px;
-        height: 78px;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        border-radius: 50%;
-
-        background: #f8fafc;
-
-        border: 1px solid #e2e8f0;
-
-        overflow: hidden;
-
-        flex-shrink: 0;
     }
 
 
@@ -208,12 +183,14 @@ st.markdown(
 
         background: #00843d;
 
-        color: white;
+        color: #ffffff;
 
         font-size: 20px;
         font-weight: 800;
 
         border: 4px solid #fbbf24;
+
+        box-sizing: border-box;
     }
 
 
@@ -246,27 +223,58 @@ st.markdown(
 
 
     .registry-version {
-        margin-left: auto;
-
         font-size: 11px;
 
         color: #64748b;
+
+        margin-top: 4px;
 
         white-space: nowrap;
     }
 
 
-    /* --------------------------------------------------------
-       PAGE TITLE
-    -------------------------------------------------------- */
+    /* ========================================================
+       SYSTEM STATUS
+       ======================================================== */
+
+    .status-online {
+        display: inline-flex;
+
+        align-items: center;
+
+        gap: 6px;
+
+        font-size: 12px;
+
+        font-weight: 600;
+
+        color: #15803d;
+    }
+
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+
+        border-radius: 50%;
+
+        background: #22c55e;
+    }
+
+
+    /* ========================================================
+       PAGE TITLES
+       ======================================================== */
 
     .page-title {
         font-size: 30px;
+
         font-weight: 800;
 
         color: #172033;
 
         margin-top: 10px;
+
         margin-bottom: 4px;
     }
 
@@ -280,12 +288,12 @@ st.markdown(
     }
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
        KPI CARDS
-    -------------------------------------------------------- */
+       ======================================================== */
 
     .kpi-card {
-        background: white;
+        background: #ffffff;
 
         border: 1px solid #e2e8f0;
 
@@ -297,6 +305,8 @@ st.markdown(
 
         box-shadow:
             0 2px 8px rgba(15, 23, 42, 0.04);
+
+        box-sizing: border-box;
     }
 
 
@@ -327,12 +337,12 @@ st.markdown(
     }
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
        MODULE CARDS
-    -------------------------------------------------------- */
+       ======================================================== */
 
     .module-card {
-        background: white;
+        background: #ffffff;
 
         border: 1px solid #e2e8f0;
 
@@ -346,6 +356,8 @@ st.markdown(
             0 2px 8px rgba(15, 23, 42, 0.04);
 
         margin-bottom: 15px;
+
+        box-sizing: border-box;
     }
 
 
@@ -369,38 +381,9 @@ st.markdown(
     }
 
 
-    /* --------------------------------------------------------
-       STATUS
-    -------------------------------------------------------- */
-
-    .status-online {
-        display: inline-flex;
-
-        align-items: center;
-
-        gap: 6px;
-
-        font-size: 12px;
-
-        font-weight: 600;
-
-        color: #15803d;
-    }
-
-
-    .status-dot {
-        width: 8px;
-        height: 8px;
-
-        border-radius: 50%;
-
-        background: #22c55e;
-    }
-
-
-    /* --------------------------------------------------------
+    /* ========================================================
        FOOTER
-    -------------------------------------------------------- */
+       ======================================================== */
 
     .registry-footer {
         margin-top: 40px;
@@ -416,6 +399,27 @@ st.markdown(
         color: #94a3b8;
     }
 
+
+    /* ========================================================
+       MOBILE
+       ======================================================== */
+
+    @media (max-width: 768px) {
+
+        .registry-title {
+            font-size: 20px;
+        }
+
+        .registry-subtitle {
+            font-size: 11px;
+        }
+
+        .page-title {
+            font-size: 24px;
+        }
+
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -426,37 +430,17 @@ st.markdown(
 # HEADER
 # ============================================================
 
-header_left, header_brand, header_version = st.columns(
-    [0.12, 0.73, 0.15],
+header_left, header_brand, header_status = st.columns(
+    [0.12, 0.68, 0.20],
     vertical_alignment="center",
 )
 
 
 with header_left:
-
-    emblem_bytes = get_emblem()
-
-    if emblem_bytes:
-
-        st.image(
-            emblem_bytes,
-            width=78,
-        )
-
-    else:
-
-        st.markdown(
-            """
-            <div class="registry-fallback">
-                SS
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    render_registry_emblem()
 
 
 with header_brand:
-
     st.markdown(
         """
         <div class="registry-brand">
@@ -476,8 +460,7 @@ with header_brand:
     )
 
 
-with header_version:
-
+with header_status:
     st.markdown(
         f"""
         <div style="text-align:right">
@@ -501,7 +484,7 @@ with header_version:
 # NAVIGATION
 # ============================================================
 
-pages = [
+PAGES = [
     "Overview",
     "Population",
     "Civil Registration",
@@ -512,10 +495,17 @@ pages = [
 ]
 
 
+current_page = st.session_state.active_page
+
+if current_page not in PAGES:
+    current_page = "Overview"
+    st.session_state.active_page = current_page
+
+
 selected_page = st.radio(
-    "Navigation",
-    pages,
-    index=pages.index(st.session_state.active_page),
+    "Registry Navigation",
+    PAGES,
+    index=PAGES.index(current_page),
     horizontal=True,
     label_visibility="collapsed",
 )
@@ -532,10 +522,7 @@ if selected_page != st.session_state.active_page:
 
 with st.sidebar:
 
-    st.markdown(
-        "### Registry"
-
-    )
+    st.markdown("### Registry")
 
     st.caption(
         "National information management platform"
@@ -543,26 +530,96 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown(
-        "#### System Status"
-    )
+    st.markdown("#### System Status")
 
     st.success(
         "Registry services operational"
     )
 
     st.info(
-        "Database connection ready"
+        "Application running"
     )
 
     st.divider()
 
-    st.markdown(
-        "#### Current Module"
-    )
+    st.markdown("#### Current Module")
 
     st.write(
         st.session_state.active_page
+    )
+
+
+# ============================================================
+# PAGE HELPERS
+# ============================================================
+
+def page_header(
+    title: str,
+    description: str,
+) -> None:
+
+    st.markdown(
+        f"""
+        <div class="page-title">
+            {title}
+        </div>
+
+        <div class="page-description">
+            {description}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def module_card(
+    title: str,
+    description: str,
+) -> None:
+
+    st.markdown(
+        f"""
+        <div class="module-card">
+
+            <div class="module-title">
+                {title}
+            </div>
+
+            <div class="module-description">
+                {description}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def kpi_card(
+    label: str,
+    value: str,
+    description: str,
+) -> None:
+
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+
+            <div class="kpi-label">
+                {label}
+            </div>
+
+            <div class="kpi-value">
+                {value}
+            </div>
+
+            <div class="kpi-description">
+                {description}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -572,121 +629,48 @@ with st.sidebar:
 
 def render_overview() -> None:
 
-    st.markdown(
-        '<div class="page-title">Overview</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="page-description">
-            National Registry system overview and operational status.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    page_header(
+        "Overview",
+        "National Registry system overview and operational status.",
     )
 
 
     # --------------------------------------------------------
-    # KPI CARDS
+    # KPI SECTION
     # --------------------------------------------------------
 
     col1, col2, col3, col4 = st.columns(4)
 
 
     with col1:
-
-        st.markdown(
-            """
-            <div class="kpi-card">
-
-                <div class="kpi-label">
-                    Registered Population
-                </div>
-
-                <div class="kpi-value">
-                    0
-                </div>
-
-                <div class="kpi-description">
-                    Population records
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        kpi_card(
+            "Registered Population",
+            "0",
+            "Population records",
         )
 
 
     with col2:
-
-        st.markdown(
-            """
-            <div class="kpi-card">
-
-                <div class="kpi-label">
-                    Civil Records
-                </div>
-
-                <div class="kpi-value">
-                    0
-                </div>
-
-                <div class="kpi-description">
-                    Birth, death and civil events
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        kpi_card(
+            "Civil Records",
+            "0",
+            "Birth, death and civil events",
         )
 
 
     with col3:
-
-        st.markdown(
-            """
-            <div class="kpi-card">
-
-                <div class="kpi-label">
-                    Identity Records
-                </div>
-
-                <div class="kpi-value">
-                    0
-                </div>
-
-                <div class="kpi-description">
-                    National identity records
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        kpi_card(
+            "Identity Records",
+            "0",
+            "National identity records",
         )
 
 
     with col4:
-
-        st.markdown(
-            """
-            <div class="kpi-card">
-
-                <div class="kpi-label">
-                    Election Records
-                </div>
-
-                <div class="kpi-value">
-                    0
-                </div>
-
-                <div class="kpi-description">
-                    Electoral records
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        kpi_card(
+            "Election Records",
+            "0",
+            "Electoral records",
         )
 
 
@@ -694,7 +678,7 @@ def render_overview() -> None:
 
 
     # --------------------------------------------------------
-    # MODULES
+    # SERVICES
     # --------------------------------------------------------
 
     st.subheader("Registry Services")
@@ -705,121 +689,58 @@ def render_overview() -> None:
 
     with col1:
 
-        st.markdown(
-            """
-            <div class="module-card">
-
-                <div class="module-title">
-                    Population Registry
-                </div>
-
-                <div class="module-description">
-                    Manage national population records,
-                    households, persons and demographic information.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        module_card(
+            "Population Registry",
+            (
+                "Manage national population records, "
+                "households, persons and demographic information."
+            ),
         )
 
-
-        st.markdown(
-            """
-            <div class="module-card">
-
-                <div class="module-title">
-                    Identity Management
-                </div>
-
-                <div class="module-description">
-                    Manage national identity registration,
-                    identification records and identity services.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        module_card(
+            "Identity Management",
+            (
+                "Manage national identity registration, "
+                "identification records and identity services."
+            ),
         )
 
 
     with col2:
 
-        st.markdown(
-            """
-            <div class="module-card">
-
-                <div class="module-title">
-                    Civil Registration
-                </div>
-
-                <div class="module-description">
-                    Register births, deaths, marriages,
-                    certificates and other civil events.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        module_card(
+            "Civil Registration",
+            (
+                "Register births, deaths, marriages, "
+                "certificates and other civil events."
+            ),
         )
 
-
-        st.markdown(
-            """
-            <div class="module-card">
-
-                <div class="module-title">
-                    Elections
-                </div>
-
-                <div class="module-description">
-                    Manage electoral registration,
-                    voter records and election administration.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        module_card(
+            "Elections",
+            (
+                "Manage electoral registration, "
+                "voter records and election administration."
+            ),
         )
 
 
     with col3:
 
-        st.markdown(
-            """
-            <div class="module-card">
-
-                <div class="module-title">
-                    Reports & Analytics
-                </div>
-
-                <div class="module-description">
-                    Generate operational reports,
-                    statistical summaries and registry analytics.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        module_card(
+            "Reports & Analytics",
+            (
+                "Generate operational reports, "
+                "statistical summaries and registry analytics."
+            ),
         )
 
-
-        st.markdown(
-            """
-            <div class="module-card">
-
-                <div class="module-title">
-                    Administration
-                </div>
-
-                <div class="module-description">
-                    Manage users, roles, permissions,
-                    configuration and system administration.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        module_card(
+            "Administration",
+            (
+                "Manage users, roles, permissions, "
+                "configuration and system administration."
+            ),
         )
 
 
@@ -829,27 +750,16 @@ def render_overview() -> None:
 
 def render_population() -> None:
 
-    st.markdown(
-        '<div class="page-title">Population Registry</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="page-description">
-            National population registration and demographic records.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    page_header(
+        "Population Registry",
+        (
+            "National population registration and "
+            "demographic records."
+        ),
     )
 
     st.info(
         "Population Registry module is ready for database integration."
-    )
-
-    st.dataframe(
-        [],
-        use_container_width=True,
     )
 
 
@@ -859,18 +769,12 @@ def render_population() -> None:
 
 def render_civil_registration() -> None:
 
-    st.markdown(
-        '<div class="page-title">Civil Registration</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="page-description">
-            Birth, death, marriage and civil-status registration.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    page_header(
+        "Civil Registration",
+        (
+            "Birth, death, marriage and civil-status "
+            "registration."
+        ),
     )
 
     st.info(
@@ -884,18 +788,12 @@ def render_civil_registration() -> None:
 
 def render_identity() -> None:
 
-    st.markdown(
-        '<div class="page-title">Identity Management</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="page-description">
-            National identity registration and identity management.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    page_header(
+        "Identity Management",
+        (
+            "National identity registration and "
+            "identity management."
+        ),
     )
 
     st.info(
@@ -909,18 +807,12 @@ def render_identity() -> None:
 
 def render_elections() -> None:
 
-    st.markdown(
-        '<div class="page-title">Elections</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="page-description">
-            Electoral registration and election administration.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    page_header(
+        "Elections",
+        (
+            "Electoral registration and "
+            "election administration."
+        ),
     )
 
     st.info(
@@ -934,18 +826,12 @@ def render_elections() -> None:
 
 def render_reports() -> None:
 
-    st.markdown(
-        '<div class="page-title">Reports & Analytics</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="page-description">
-            Registry statistics, operational reporting and analytics.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    page_header(
+        "Reports & Analytics",
+        (
+            "Registry statistics, operational reporting "
+            "and analytics."
+        ),
     )
 
     st.info(
@@ -959,18 +845,12 @@ def render_reports() -> None:
 
 def render_administration() -> None:
 
-    st.markdown(
-        '<div class="page-title">Administration</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="page-description">
-            System users, roles, permissions and configuration.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    page_header(
+        "Administration",
+        (
+            "System users, roles, permissions "
+            "and configuration."
+        ),
     )
 
     st.info(
@@ -979,7 +859,7 @@ def render_administration() -> None:
 
 
 # ============================================================
-# ROUTER
+# PAGE ROUTER
 # ============================================================
 
 if st.session_state.active_page == "Overview":
@@ -1010,6 +890,11 @@ elif st.session_state.active_page == "Administration":
 
     render_administration()
 
+else:
+
+    st.session_state.active_page = "Overview"
+    st.rerun()
+
 
 # ============================================================
 # FOOTER
@@ -1028,4 +913,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True,
-)
+            )
