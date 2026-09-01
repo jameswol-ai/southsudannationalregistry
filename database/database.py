@@ -1,16 +1,24 @@
 """
 Database configuration for the South Sudan National Registry.
 
-Development:
-    SQLite is used automatically when DATABASE_URL is not supplied.
+Development
+-----------
+SQLite is used automatically when DATABASE_URL is not supplied.
 
-Production:
-    Set DATABASE_URL to a PostgreSQL connection string, for example:
+Production
+----------
+Set DATABASE_URL to a PostgreSQL connection string.
+
+Examples:
+
+    postgresql://user:password@host:5432/registry
+
+    postgresql+psycopg2://user:password@host:5432/registry
 
     postgresql+psycopg://user:password@host:5432/registry
 
-The rest of the application uses SQLAlchemy and does not depend on
-a specific database engine.
+The application uses SQLAlchemy and does not depend on a
+specific database engine.
 """
 
 from __future__ import annotations
@@ -20,20 +28,28 @@ from pathlib import Path
 from typing import Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 
 
 # ============================================================
-# CONFIGURATION
+# PATHS
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 DATA_DIR = BASE_DIR / "data"
 
 DATA_DIR.mkdir(
     parents=True,
     exist_ok=True,
 )
+
+
+# ============================================================
+# DATABASE URL
+# ============================================================
 
 DEFAULT_SQLITE_URL = (
     f"sqlite:///{DATA_DIR / 'registry.db'}"
@@ -45,21 +61,62 @@ DATABASE_URL = os.getenv(
 ).strip()
 
 
+if not DATABASE_URL:
+    DATABASE_URL = DEFAULT_SQLITE_URL
+
+
 # ============================================================
-# SQLALCHEMY ENGINE
+# SQLITE CONFIGURATION
 # ============================================================
 
-connect_args = {}
+connect_args: dict[str, object] = {}
 
 if DATABASE_URL.startswith("sqlite"):
+
     connect_args = {
         "check_same_thread": False,
     }
 
+
+# ============================================================
+# SQLALCHEMY ENGINE
+# ============================================================
+
+engine_kwargs: dict[str, object] = {
+    "pool_pre_ping": True,
+}
+
+
+# SQLite-specific settings
+if connect_args:
+
+    engine_kwargs["connect_args"] = connect_args
+
+
+# PostgreSQL-specific settings
+#
+# PostgreSQL connection pools are useful for the Registry API,
+# Streamlit and other application processes sharing the database.
+if DATABASE_URL.startswith("postgresql"):
+
+    engine_kwargs["pool_size"] = int(
+        os.getenv(
+            "DATABASE_POOL_SIZE",
+            "5",
+        )
+    )
+
+    engine_kwargs["max_overflow"] = int(
+        os.getenv(
+            "DATABASE_MAX_OVERFLOW",
+            "10",
+        )
+    )
+
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True,
+    **engine_kwargs,
 )
 
 
@@ -68,53 +125,158 @@ engine = create_engine(
 # ============================================================
 
 class Base(DeclarativeBase):
-    """Base class for all registry ORM models."""
+    """
+    Base class for all registry ORM models.
+    """
 
     pass
 
 
 # ============================================================
-# SESSION
+# SESSION FACTORY
 # ============================================================
 
 SessionLocal = sessionmaker(
     bind=engine,
+    class_=Session,
     autoflush=False,
     autocommit=False,
     expire_on_commit=False,
 )
 
 
+# ============================================================
+# DATABASE DEPENDENCY
+# ============================================================
+
 def get_db() -> Generator[Session, None, None]:
     """
-    Yield a database session.
+    Yield a SQLAlchemy database session.
 
-    Intended for service-layer use and FastAPI dependency injection.
+    Suitable for:
+
+        - Service-layer operations
+        - FastAPI dependency injection
+        - Streamlit operations
     """
 
     db = SessionLocal()
 
     try:
+
         yield db
+
     finally:
+
         db.close()
 
 
 # ============================================================
-# INITIALIZATION
+# DATABASE INITIALIZATION
 # ============================================================
 
 def init_db() -> None:
     """
-    Create all database tables.
+    Create all registered database tables.
 
-    For production PostgreSQL deployments, Alembic migrations should
-    eventually replace create_all().
+    SQLAlchemy's create_all() is intentionally used here for the
+    current development/alpha stage.
+
+    Production deployments should eventually use Alembic migrations.
     """
 
-    # Import models before create_all so SQLAlchemy knows all tables.
+    # Import models before create_all().
+    #
+    # This ensures all ORM classes have been registered with Base.metadata.
     from . import models  # noqa: F401
 
     Base.metadata.create_all(
         bind=engine,
     )
+
+
+# ============================================================
+# DATABASE HEALTH CHECK
+# ============================================================
+
+def check_database_connection() -> bool:
+    """
+    Test whether the configured database is reachable.
+
+    Returns:
+        True when the connection succeeds.
+        False when the connection fails.
+    """
+
+    try:
+
+        with engine.connect():
+
+            return True
+
+    except Exception:
+
+        return False
+
+
+# ============================================================
+# DATABASE INFORMATION
+# ============================================================
+
+def get_database_type() -> str:
+    """
+    Return a human-readable database engine name.
+    """
+
+    if DATABASE_URL.startswith("sqlite"):
+
+        return "SQLite"
+
+    if DATABASE_URL.startswith("postgresql"):
+
+        return "PostgreSQL"
+
+    return "SQLAlchemy Database"
+
+
+def get_database_url_safe() -> str:
+    """
+    Return the database URL with credentials hidden.
+
+    This is intended for administration/status displays.
+    """
+
+    value = DATABASE_URL
+
+    if "@" not in value:
+
+        return value
+
+    prefix, suffix = value.rsplit(
+        "@",
+        1,
+    )
+
+    if "://" not in prefix:
+
+        return value
+
+    scheme, credentials = prefix.split(
+        "://",
+        1,
+    )
+
+    if ":" in credentials:
+
+        username = credentials.split(
+            ":",
+            1,
+        )[0]
+
+        return (
+            f"{scheme}://"
+            f"{username}:********@"
+            f"{suffix}"
+        )
+
+    return value
