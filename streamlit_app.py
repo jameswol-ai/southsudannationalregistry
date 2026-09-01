@@ -6,7 +6,33 @@ National population, civil registration, identity,
 household and electoral registry management platform.
 
 Application entry point:
+
     streamlit run streamlit_app.py
+
+Expected project structure:
+
+    southsudannationalregistry/
+    │
+    ├── streamlit_app.py
+    │
+    ├── assets/
+    │   └── south_sudan_emblem.png
+    │
+    ├── database/
+    │   ├── __init__.py
+    │   └── database.py
+    │
+    └── modules/
+        ├── __init__.py
+        └── registry.py
+
+The application is deliberately defensive:
+- Missing/corrupt emblem does not crash the application.
+- Database initialization failure does not crash the UI.
+- Missing optional modules do not crash the application.
+- Invalid Streamlit icons are not used.
+- Registry pages remain available even when backend services
+  are not yet connected.
 """
 
 from __future__ import annotations
@@ -21,9 +47,10 @@ import streamlit as st
 
 # ============================================================
 # PAGE CONFIGURATION
-# IMPORTANT:
-# Must be called before other Streamlit commands.
 # ============================================================
+
+# IMPORTANT:
+# st.set_page_config() must be the first Streamlit command.
 
 st.set_page_config(
     page_title="South Sudan National Registry",
@@ -53,6 +80,7 @@ logger = logging.getLogger(
 )
 
 if not logger.handlers:
+
     logging.basicConfig(
         level=logging.INFO
     )
@@ -63,37 +91,52 @@ if not logger.handlers:
 # ============================================================
 
 if "active_module" not in st.session_state:
+
     st.session_state.active_module = "overview"
 
+
 if "dark_mode" not in st.session_state:
+
     st.session_state.dark_mode = True
 
 
+if "database_connected" not in st.session_state:
+
+    st.session_state.database_connected = False
+
+
+if "database_error" not in st.session_state:
+
+    st.session_state.database_error = None
+
+
 # ============================================================
-# SAFE EMBLEM LOADING
+# SAFE EMBLEM LOADER
 # ============================================================
 
 @st.cache_data(show_spinner=False)
 def load_emblem_bytes() -> bytes | None:
     """
-    Safely read and validate the South Sudan emblem.
+    Load and validate the South Sudan National Emblem.
 
-    A missing, empty, corrupt, or invalid image must never
-    crash the application.
+    A missing, empty, corrupt or unsupported image will return
+    None instead of raising PIL.UnidentifiedImageError.
     """
-
-    if not EMBLEM_PATH.exists():
-
-        logger.warning(
-            "Emblem not found: %s",
-            EMBLEM_PATH,
-        )
-
-        return None
 
     try:
 
+        if not EMBLEM_PATH.exists():
+
+            logger.warning(
+                "Emblem file not found: %s",
+                EMBLEM_PATH,
+            )
+
+            return None
+
+
         image_bytes = EMBLEM_PATH.read_bytes()
+
 
         if not image_bytes:
 
@@ -104,6 +147,9 @@ def load_emblem_bytes() -> bytes | None:
 
             return None
 
+
+        # Validate the image before giving it to Streamlit.
+
         from PIL import Image
 
         with Image.open(
@@ -112,12 +158,14 @@ def load_emblem_bytes() -> bytes | None:
 
             image.verify()
 
+
         return image_bytes
+
 
     except Exception as exc:
 
         logger.warning(
-            "Invalid emblem file '%s': %s",
+            "Unable to validate emblem '%s': %s",
             EMBLEM_PATH,
             exc,
         )
@@ -125,17 +173,19 @@ def load_emblem_bytes() -> bytes | None:
         return None
 
 
-def get_emblem_image() -> Any | None:
+@st.cache_data(show_spinner=False)
+def load_emblem() -> Any | None:
     """
-    Return a validated Pillow image.
-
-    Returns None when the image is unavailable.
+    Return a Pillow image suitable for st.image().
     """
 
     image_bytes = load_emblem_bytes()
 
+
     if image_bytes is None:
+
         return None
+
 
     try:
 
@@ -144,6 +194,9 @@ def get_emblem_image() -> Any | None:
         image = Image.open(
             io.BytesIO(image_bytes)
         )
+
+        image.load()
+
 
         if image.mode not in (
             "RGB",
@@ -154,149 +207,18 @@ def get_emblem_image() -> Any | None:
                 "RGBA"
             )
 
+
         return image
+
 
     except Exception as exc:
 
         logger.warning(
-            "Could not load emblem: %s",
+            "Unable to load validated emblem: %s",
             exc,
         )
 
         return None
-
-
-# ============================================================
-# DATABASE
-# ============================================================
-
-database_connected = False
-
-database_error: Exception | None = None
-
-init_db = None
-
-
-try:
-
-    from database.database import init_db
-
-except Exception as exc:
-
-    database_error = exc
-
-    logger.exception(
-        "Unable to import database initializer."
-    )
-
-
-@st.cache_resource
-def initialize_database() -> bool:
-    """
-    Initialize database once per Streamlit process.
-    """
-
-    if init_db is None:
-
-        raise RuntimeError(
-            "database.database.init_db could not be imported."
-        )
-
-    init_db()
-
-    return True
-
-
-try:
-
-    initialize_database()
-
-    database_connected = True
-
-except Exception as exc:
-
-    database_error = exc
-
-    logger.exception(
-        "Database initialization failed."
-    )
-
-
-# ============================================================
-# MODULE REGISTRY
-# ============================================================
-
-get_available_modules = None
-
-get_module = None
-
-render_module = None
-
-
-try:
-
-    from modules.registry import (
-        get_available_modules,
-        get_module,
-        render_module,
-    )
-
-except Exception:
-
-    logger.exception(
-        "Unable to import modules.registry."
-    )
-
-
-def load_registry_modules() -> list[Any]:
-    """
-    Safely load available Registry modules.
-    """
-
-    if get_available_modules is None:
-
-        return []
-
-    try:
-
-        modules = get_available_modules()
-
-        return list(
-            modules or []
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Unable to load Registry modules."
-        )
-
-        return []
-
-
-def load_all_registry_modules() -> list[Any]:
-    """
-    Load all configured modules where possible.
-    """
-
-    try:
-
-        from modules.registry import MODULES
-
-        if isinstance(
-            MODULES,
-            dict,
-        ):
-
-            return list(
-                MODULES.values()
-            )
-
-    except Exception:
-
-        pass
-
-    return load_registry_modules()
 
 
 # ============================================================
@@ -334,7 +256,10 @@ def get_theme() -> dict[str, str]:
             "warning": "#F59E0B",
 
             "danger": "#EF4444",
+
+            "white": "#FFFFFF",
         }
+
 
     return {
 
@@ -363,6 +288,8 @@ def get_theme() -> dict[str, str]:
         "warning": "#D97706",
 
         "danger": "#DC2626",
+
+        "white": "#FFFFFF",
     }
 
 
@@ -374,13 +301,59 @@ def inject_css() -> None:
 
     theme = get_theme()
 
+
     st.markdown(
         f"""
 <style>
 
+:root {{
+
+    --registry-background:
+        {theme["background"]};
+
+    --registry-surface:
+        {theme["surface"]};
+
+    --registry-surface-alt:
+        {theme["surface_alt"]};
+
+    --registry-surface-hover:
+        {theme["surface_hover"]};
+
+    --registry-text:
+        {theme["text"]};
+
+    --registry-muted:
+        {theme["muted"]};
+
+    --registry-border:
+        {theme["border"]};
+
+    --registry-accent:
+        {theme["accent"]};
+
+    --registry-accent-dark:
+        {theme["accent_dark"]};
+
+    --registry-success:
+        {theme["success"]};
+
+    --registry-warning:
+        {theme["warning"]};
+
+    --registry-danger:
+        {theme["danger"]};
+}}
+
+
+/* ============================================================
+   GLOBAL
+   ============================================================ */
+
 html,
 body,
 [class*="css"] {{
+
     font-family:
         Inter,
         -apple-system,
@@ -389,16 +362,29 @@ body,
         sans-serif;
 }}
 
+
 .stApp {{
-    background: {theme["background"]};
-    color: {theme["text"]};
+
+    background:
+        var(--registry-background);
+
+    color:
+        var(--registry-text);
 }}
 
+
 .block-container {{
-    max-width: 1500px;
-    padding-top: 1.2rem;
-    padding-bottom: 3rem;
+
+    max-width:
+        1500px;
+
+    padding-top:
+        1.2rem;
+
+    padding-bottom:
+        3rem;
 }}
+
 
 h1,
 h2,
@@ -406,12 +392,10 @@ h3,
 h4,
 h5,
 h6 {{
-    color: {theme["text"]} !important;
-}}
 
-p,
-label {{
-    color: {theme["text"]};
+    color:
+        var(--registry-text)
+        !important;
 }}
 
 
@@ -420,61 +404,132 @@ label {{
    ============================================================ */
 
 section[data-testid="stSidebar"] {{
-    background: {theme["surface"]};
+
+    background:
+        var(--registry-surface);
+
     border-right:
-        1px solid {theme["border"]};
+        1px solid
+        var(--registry-border);
 }}
+
 
 section[data-testid="stSidebar"] * {{
-    color: {theme["text"]};
+
+    color:
+        var(--registry-text);
 }}
 
-.sidebar-section {{
-    color: {theme["accent"]};
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    margin-top: 17px;
-    margin-bottom: 7px;
+
+.sidebar-brand-title {{
+
+    font-size:
+        19px;
+
+    font-weight:
+        800;
+
+    line-height:
+        1.25;
+
+    color:
+        var(--registry-text);
 }}
+
+
+.sidebar-brand-subtitle {{
+
+    margin-top:
+        6px;
+
+    font-size:
+        11px;
+
+    line-height:
+        1.5;
+
+    color:
+        var(--registry-muted);
+}}
+
+
+.sidebar-section {{
+
+    margin-top:
+        18px;
+
+    margin-bottom:
+        7px;
+
+    color:
+        var(--registry-accent);
+
+    font-size:
+        10px;
+
+    font-weight:
+        800;
+
+    text-transform:
+        uppercase;
+
+    letter-spacing:
+        0.09em;
+}}
+
 
 section[data-testid="stSidebar"]
 .stButton > button {{
 
-    width: 100%;
+    width:
+        100%;
 
-    min-height: 38px;
+    min-height:
+        38px;
 
-    border-radius: 9px;
+    border-radius:
+        9px;
 
-    text-align: left;
+    text-align:
+        left;
 
-    font-weight: 600;
+    font-weight:
+        600;
 
     border:
         1px solid transparent;
+
+    background:
+        transparent;
+
+    color:
+        var(--registry-text);
 }}
+
 
 section[data-testid="stSidebar"]
 .stButton > button:hover {{
 
     border-color:
-        {theme["border"]};
+        var(--registry-border);
+
+    background:
+        var(--registry-surface-hover);
 }}
 
 
 /* ============================================================
-   REGISTRY HEADER
+   MAIN HEADER
    ============================================================ */
 
 .registry-header {{
 
     background:
-        {theme["surface"]};
+        var(--registry-surface);
 
     border:
-        1px solid {theme["border"]};
+        1px solid
+        var(--registry-border);
 
     border-radius:
         18px;
@@ -486,25 +541,8 @@ section[data-testid="stSidebar"]
         20px;
 }}
 
-.registry-brand {{
-
-    display:
-        flex;
-
-    flex-direction:
-        column;
-
-    justify-content:
-        center;
-
-    width:
-        100%;
-}}
 
 .registry-title {{
-
-    color:
-        {theme["text"]};
 
     font-size:
         28px;
@@ -517,61 +555,66 @@ section[data-testid="stSidebar"]
 
     letter-spacing:
         -0.02em;
+
+    color:
+        var(--registry-text);
 }}
+
 
 .registry-subtitle {{
 
-    color:
-        {theme["muted"]};
+    margin-top:
+        6px;
 
     font-size:
         13px;
 
-    font-weight:
-        500;
-
     line-height:
         1.5;
 
-    margin-top:
-        7px;
+    color:
+        var(--registry-muted);
 }}
 
 
 /* ============================================================
-   SIDEBAR BRAND
+   EMBLEM FALLBACK
    ============================================================ */
 
-.registry-brand-sidebar {{
+.registry-emblem-fallback {{
 
-    text-align:
-        left;
+    width:
+        64px;
 
-    margin-top:
-        4px;
+    height:
+        64px;
 
-    margin-bottom:
-        12px;
-}}
+    border-radius:
+        50%;
 
-.registry-brand-sidebar
-.registry-title {{
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    background:
+        var(--registry-accent);
+
+    border:
+        3px solid #FBBF24;
+
+    color:
+        #FFFFFF;
 
     font-size:
         18px;
-}}
 
-.registry-brand-sidebar
-.registry-subtitle {{
-
-    font-size:
-        11px;
-
-    line-height:
-        1.45;
-
-    margin-top:
-        5px;
+    font-weight:
+        900;
 }}
 
 
@@ -579,16 +622,10 @@ section[data-testid="stSidebar"]
    STATUS
    ============================================================ */
 
-.registry-status {{
-
-    text-align:
-        right;
-}}
-
 .status-online {{
 
     color:
-        {theme["success"]};
+        var(--registry-success);
 
     font-size:
         12px;
@@ -596,11 +633,12 @@ section[data-testid="stSidebar"]
     font-weight:
         700;
 }}
+
 
 .status-warning {{
 
     color:
-        {theme["warning"]};
+        var(--registry-warning);
 
     font-size:
         12px;
@@ -608,6 +646,7 @@ section[data-testid="stSidebar"]
     font-weight:
         700;
 }}
+
 
 .status-dot {{
 
@@ -623,12 +662,13 @@ section[data-testid="stSidebar"]
     border-radius:
         50%;
 
-    background:
-        {theme["success"]};
-
     margin-right:
         5px;
+
+    background:
+        var(--registry-success);
 }}
+
 
 .status-dot-warning {{
 
@@ -644,81 +684,42 @@ section[data-testid="stSidebar"]
     border-radius:
         50%;
 
-    background:
-        {theme["warning"]};
-
     margin-right:
         5px;
+
+    background:
+        var(--registry-warning);
 }}
+
 
 .registry-version {{
 
+    margin-top:
+        4px;
+
     color:
-        {theme["muted"]};
+        var(--registry-muted);
 
     font-size:
         11px;
-
-    margin-top:
-        4px;
 }}
 
 
 /* ============================================================
-   EMBLEM FALLBACK
+   PAGE HEADER
    ============================================================ */
 
-.registry-emblem-fallback {{
-
-    width:
-        65px;
-
-    height:
-        65px;
-
-    border-radius:
-        50%;
-
-    display:
-        flex;
-
-    align-items:
-        center;
-
-    justify-content:
-        center;
+.page-card {{
 
     background:
-        {theme["accent"]};
+        var(--registry-surface);
 
     border:
-        3px solid #FBBF24;
-
-    color:
-        #FFFFFF;
-
-    font-size:
-        19px;
-
-    font-weight:
-        900;
-}}
-
-
-/* ============================================================
-   OVERVIEW
-   ============================================================ */
-
-.overview-card {{
-
-    background:
-        {theme["surface"]};
-
-    border:
-        1px solid {theme["border"]};
+        1px solid
+        var(--registry-border);
 
     border-radius:
-        15px;
+        16px;
 
     padding:
         22px;
@@ -727,10 +728,11 @@ section[data-testid="stSidebar"]
         18px;
 }}
 
+
 .registry-kicker {{
 
     color:
-        {theme["accent"]};
+        var(--registry-accent);
 
     font-size:
         11px;
@@ -745,10 +747,14 @@ section[data-testid="stSidebar"]
         0.08em;
 }}
 
+
 .registry-heading {{
 
+    margin-top:
+        5px;
+
     color:
-        {theme["text"]};
+        var(--registry-text);
 
     font-size:
         23px;
@@ -758,24 +764,25 @@ section[data-testid="stSidebar"]
 
     line-height:
         1.3;
-
-    margin-top:
-        5px;
 }}
+
 
 .registry-description {{
 
+    margin-top:
+        7px;
+
+    max-width:
+        1000px;
+
     color:
-        {theme["muted"]};
+        var(--registry-muted);
 
     font-size:
         14px;
 
     line-height:
         1.6;
-
-    margin-top:
-        7px;
 }}
 
 
@@ -785,26 +792,28 @@ section[data-testid="stSidebar"]
 
 .kpi-card {{
 
-    background:
-        {theme["surface"]};
-
-    border:
-        1px solid {theme["border"]};
-
-    border-radius:
-        15px;
+    min-height:
+        120px;
 
     padding:
         18px;
 
-    min-height:
-        120px;
+    background:
+        var(--registry-surface);
+
+    border:
+        1px solid
+        var(--registry-border);
+
+    border-radius:
+        15px;
 }}
+
 
 .kpi-label {{
 
     color:
-        {theme["muted"]};
+        var(--registry-muted);
 
     font-size:
         12px;
@@ -813,10 +822,14 @@ section[data-testid="stSidebar"]
         700;
 }}
 
+
 .kpi-value {{
 
+    margin-top:
+        6px;
+
     color:
-        {theme["text"]};
+        var(--registry-text);
 
     font-size:
         30px;
@@ -826,53 +839,53 @@ section[data-testid="stSidebar"]
 
     line-height:
         1.1;
-
-    margin-top:
-        6px;
 }}
+
 
 .kpi-description {{
 
+    margin-top:
+        6px;
+
     color:
-        {theme["muted"]};
+        var(--registry-muted);
 
     font-size:
         11px;
-
-    margin-top:
-        6px;
 }}
 
 
 /* ============================================================
-   MODULE CARDS
+   MODULE CARD
    ============================================================ */
 
 .module-card {{
 
-    background:
-        {theme["surface"]};
-
-    border:
-        1px solid {theme["border"]};
-
-    border-radius:
-        14px;
+    min-height:
+        125px;
 
     padding:
         18px;
 
-    min-height:
-        125px;
-
     margin-bottom:
         15px;
+
+    background:
+        var(--registry-surface);
+
+    border:
+        1px solid
+        var(--registry-border);
+
+    border-radius:
+        14px;
 }}
+
 
 .module-name {{
 
     color:
-        {theme["text"]};
+        var(--registry-text);
 
     font-size:
         16px;
@@ -881,19 +894,20 @@ section[data-testid="stSidebar"]
         750;
 }}
 
+
 .module-description {{
 
+    margin-top:
+        6px;
+
     color:
-        {theme["muted"]};
+        var(--registry-muted);
 
     font-size:
         13px;
 
     line-height:
         1.5;
-
-    margin-top:
-        6px;
 }}
 
 
@@ -904,10 +918,11 @@ section[data-testid="stSidebar"]
 div[data-testid="stMetric"] {{
 
     background:
-        {theme["surface"]};
+        var(--registry-surface);
 
     border:
-        1px solid {theme["border"]};
+        1px solid
+        var(--registry-border);
 
     border-radius:
         14px;
@@ -916,17 +931,19 @@ div[data-testid="stMetric"] {{
         14px;
 }}
 
+
 div[data-testid="stMetricLabel"] {{
 
     color:
-        {theme["muted"]}
+        var(--registry-muted)
         !important;
 }}
+
 
 div[data-testid="stMetricValue"] {{
 
     color:
-        {theme["text"]}
+        var(--registry-text)
         !important;
 }}
 
@@ -958,8 +975,9 @@ div[data-baseweb="select"] > div {{
         10px;
 
     border-color:
-        {theme["border"]};
+        var(--registry-border);
 }}
+
 
 input,
 textarea {{
@@ -976,7 +994,7 @@ textarea {{
 .registry-footer {{
 
     color:
-        {theme["muted"]};
+        var(--registry-muted);
 
     font-size:
         11px;
@@ -991,16 +1009,21 @@ textarea {{
    ============================================================ */
 
 #MainMenu {{
+
     visibility:
         hidden;
 }}
+
 
 footer {{
+
     visibility:
         hidden;
 }}
 
+
 header[data-testid="stHeader"] {{
+
     background:
         transparent;
 }}
@@ -1012,43 +1035,294 @@ header[data-testid="stHeader"] {{
 
 
 # ============================================================
-# BRANDING
+# DATABASE
 # ============================================================
 
-def render_registry_brand(
-    sidebar: bool = False,
-) -> None:
+database_init_function = None
 
-    css_class = (
-        "registry-brand registry-brand-sidebar"
-        if sidebar
-        else "registry-brand"
+
+try:
+
+    from database.database import init_db
+
+    database_init_function = init_db
+
+except Exception as exc:
+
+    logger.warning(
+        "Could not import database initializer: %s",
+        exc,
     )
 
-    st.markdown(
-        f"""
-<div class="{css_class}">
+    database_init_function = None
 
-    <div class="registry-title">
-        South Sudan National Registry
-    </div>
 
-    <div class="registry-subtitle">
-        National Population • Civil Registration •
-        Identity • Elections
-    </div>
+@st.cache_resource(show_spinner=False)
+def initialize_database() -> tuple[bool, str | None]:
 
-</div>
-        """,
-        unsafe_allow_html=True,
+    if database_init_function is None:
+
+        return (
+            False,
+            "database.database.init_db could not be imported.",
+        )
+
+
+    try:
+
+        database_init_function()
+
+        return (
+            True,
+            None,
+        )
+
+
+    except Exception as exc:
+
+        logger.exception(
+            "Database initialization failed."
+        )
+
+        return (
+            False,
+            f"{type(exc).__name__}: {exc}",
+        )
+
+
+database_connected, database_error_text = (
+    initialize_database()
+)
+
+
+st.session_state.database_connected = (
+    database_connected
+)
+
+st.session_state.database_error = (
+    database_error_text
+)
+
+
+# ============================================================
+# MODULE REGISTRY
+# ============================================================
+
+registry_available = False
+
+registry_import_error: str | None = None
+
+get_available_modules = None
+
+get_module = None
+
+render_module = None
+
+
+try:
+
+    from modules.registry import (
+        get_available_modules,
+        get_module,
+        render_module,
+    )
+
+    registry_available = True
+
+
+except Exception as exc:
+
+    registry_import_error = (
+        f"{type(exc).__name__}: {exc}"
+    )
+
+    logger.warning(
+        "Could not import modules.registry: %s",
+        exc,
     )
 
 
+def load_available_modules() -> list[Any]:
+
+    if not registry_available:
+        return []
+
+
+    if get_available_modules is None:
+        return []
+
+
+    try:
+
+        modules = get_available_modules()
+
+        return list(
+            modules or []
+        )
+
+
+    except Exception:
+
+        logger.exception(
+            "Unable to load available modules."
+        )
+
+        return []
+
+
+def load_all_modules() -> list[Any]:
+
+    try:
+
+        from modules.registry import MODULES
+
+        if isinstance(
+            MODULES,
+            dict,
+        ):
+
+            return list(
+                MODULES.values()
+            )
+
+
+    except Exception:
+
+        pass
+
+
+    return load_available_modules()
+
+
 # ============================================================
-# NAVIGATION
+# PAGE DESCRIPTIONS
 # ============================================================
 
-def navigate(
+PAGE_DEFINITIONS: dict[
+    str,
+    tuple[str, str],
+] = {
+
+    "overview": (
+        "National Registry Overview",
+        (
+            "Centralized management platform for national "
+            "population records, civil registration, identity "
+            "management, households and electoral registration."
+        ),
+    ),
+
+    "citizens": (
+        "Citizens",
+        (
+            "Citizen population records and citizen registry "
+            "management."
+        ),
+    ),
+
+    "population": (
+        "Population Registry",
+        (
+            "Manage national population records, households, "
+            "persons and demographic information."
+        ),
+    ),
+
+    "civil_registration": (
+        "Civil Registration",
+        (
+            "Register births, deaths, marriages, certificates "
+            "and other civil events."
+        ),
+    ),
+
+    "identity": (
+        "Identity Management",
+        (
+            "Manage national identity registration, "
+            "identification records and identity services."
+        ),
+    ),
+
+    "elections": (
+        "Elections",
+        (
+            "Manage electoral registration, voter records "
+            "and election administration."
+        ),
+    ),
+
+    "households": (
+        "Households",
+        (
+            "Manage household records and household "
+            "relationships."
+        ),
+    ),
+
+    "documents": (
+        "Documents",
+        (
+            "Manage Registry documents, certificates "
+            "and official records."
+        ),
+    ),
+
+    "verification": (
+        "Verification",
+        (
+            "Verify population, civil registration and "
+            "identity records."
+        ),
+    ),
+
+    "reports": (
+        "Reports & Analytics",
+        (
+            "Generate operational reports, statistical "
+            "summaries and Registry analytics."
+        ),
+    ),
+
+    "statistics": (
+        "Statistics",
+        (
+            "View national Registry statistics and "
+            "demographic summaries."
+        ),
+    ),
+
+    "audit": (
+        "Audit & Activity",
+        (
+            "Review Registry activity, administrative "
+            "events and audit information."
+        ),
+    ),
+
+    "administration": (
+        "Administration",
+        (
+            "Manage users, roles, permissions, configuration "
+            "and system administration."
+        ),
+    ),
+
+    "settings": (
+        "System Settings",
+        (
+            "Configure Registry platform settings "
+            "and system preferences."
+        ),
+    ),
+}
+
+
+# ============================================================
+# SIDEBAR NAVIGATION
+# ============================================================
+
+def set_active_module(
     key: str,
 ) -> None:
 
@@ -1057,25 +1331,21 @@ def navigate(
     st.rerun()
 
 
-def sidebar_button(
+def sidebar_nav_button(
     key: str,
     label: str,
 ) -> None:
 
     if st.button(
         label,
-        key=f"sidebar_nav_{key}",
+        key=f"sidebar_button_{key}",
         use_container_width=True,
     ):
 
-        navigate(key)
+        set_active_module(key)
 
 
-# ============================================================
-# SIDEBAR
-# ============================================================
-
-def sidebar_navigation() -> None:
+def render_sidebar() -> None:
 
     with st.sidebar:
 
@@ -1083,22 +1353,23 @@ def sidebar_navigation() -> None:
         # EMBLEM
         # ----------------------------------------------------
 
-        emblem = get_emblem_image()
+        emblem = load_emblem()
+
 
         if emblem is not None:
 
             st.image(
                 emblem,
-                width=65,
+                width=64,
             )
 
         else:
 
             st.markdown(
                 """
-<div class="registry-emblem-fallback">
-    SS
-</div>
+                <div class="registry-emblem-fallback">
+                    SS
+                </div>
                 """,
                 unsafe_allow_html=True,
             )
@@ -1108,8 +1379,13 @@ def sidebar_navigation() -> None:
         # BRAND
         # ----------------------------------------------------
 
-        render_registry_brand(
-            sidebar=True
+        st.markdown(
+            "### South Sudan National Registry"
+        )
+
+        st.caption(
+            "National Population • Civil Registration • "
+            "Identity • Elections"
         )
 
 
@@ -1126,8 +1402,9 @@ def sidebar_navigation() -> None:
         else:
 
             # IMPORTANT:
-            # Do NOT use icon="!".
-            # Streamlit only accepts valid emoji icons.
+            # No icon parameter is used here.
+            # This prevents the StreamlitAPIException caused
+            # by icon="!".
 
             st.warning(
                 "Database Attention Required"
@@ -1142,40 +1419,35 @@ def sidebar_navigation() -> None:
         # ----------------------------------------------------
 
         st.markdown(
-            """
-<div class="sidebar-section">
-    Registry
-</div>
-            """,
-            unsafe_allow_html=True,
+            "Registry"
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "overview",
             "Overview",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "citizens",
             "Citizens",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "population",
             "Population Registry",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "civil_registration",
             "Civil Registration",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "identity",
             "Identity Management",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "elections",
             "Elections",
         )
@@ -1186,30 +1458,25 @@ def sidebar_navigation() -> None:
         # ----------------------------------------------------
 
         st.markdown(
-            """
-<div class="sidebar-section">
-    Operations
-</div>
-            """,
-            unsafe_allow_html=True,
+            "Operations"
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "households",
             "Households",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "documents",
             "Documents",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "verification",
             "Verification",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "reports",
             "Reports & Analytics",
         )
@@ -1220,20 +1487,15 @@ def sidebar_navigation() -> None:
         # ----------------------------------------------------
 
         st.markdown(
-            """
-<div class="sidebar-section">
-    Administration
-</div>
-            """,
-            unsafe_allow_html=True,
+            "Administration"
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "administration",
             "Administration",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "settings",
             "System Settings",
         )
@@ -1244,39 +1506,21 @@ def sidebar_navigation() -> None:
         # ----------------------------------------------------
 
         st.markdown(
-            """
-<div class="sidebar-section">
-    Other Features
-</div>
-            """,
-            unsafe_allow_html=True,
+            "Other Features"
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "statistics",
             "Statistics",
         )
 
-        sidebar_button(
+        sidebar_nav_button(
             "audit",
             "Audit & Activity",
         )
 
 
         st.divider()
-
-
-        # ----------------------------------------------------
-        # REFRESH
-        # ----------------------------------------------------
-
-        if st.button(
-            "Refresh Application",
-            key="sidebar_refresh",
-            use_container_width=True,
-        ):
-
-            st.rerun()
 
 
         # ----------------------------------------------------
@@ -1289,9 +1533,10 @@ def sidebar_navigation() -> None:
             else "Switch to Dark Mode"
         )
 
+
         if st.button(
             theme_label,
-            key="sidebar_theme",
+            key="sidebar_theme_button",
             use_container_width=True,
         ):
 
@@ -1302,12 +1547,21 @@ def sidebar_navigation() -> None:
             st.rerun()
 
 
+        # ----------------------------------------------------
+        # REFRESH
+        # ----------------------------------------------------
+
+        if st.button(
+            "Refresh Application",
+            key="sidebar_refresh_button",
+            use_container_width=True,
+        ):
+
+            st.rerun()
+
+
         st.divider()
 
-
-        st.caption(
-            "South Sudan National Registry"
-        )
 
         st.caption(
             "Registry Platform"
@@ -1324,12 +1578,14 @@ def sidebar_navigation() -> None:
 
 def render_header() -> None:
 
-    emblem = get_emblem_image()
+    emblem = load_emblem()
+
 
     st.markdown(
         '<div class="registry-header">',
         unsafe_allow_html=True,
     )
+
 
     col1, col2, col3 = st.columns(
         [1, 7, 2],
@@ -1347,16 +1603,16 @@ def render_header() -> None:
 
             st.image(
                 emblem,
-                width=65,
+                width=64,
             )
 
         else:
 
             st.markdown(
                 """
-<div class="registry-emblem-fallback">
-    SS
-</div>
+                <div class="registry-emblem-fallback">
+                    SS
+                </div>
                 """,
                 unsafe_allow_html=True,
             )
@@ -1368,7 +1624,14 @@ def render_header() -> None:
 
     with col2:
 
-        render_registry_brand()
+        st.markdown(
+            "## South Sudan National Registry"
+        )
+
+        st.caption(
+            "National Population • Civil Registration • "
+            "Identity • Elections"
+        )
 
 
     # --------------------------------------------------------
@@ -1379,57 +1642,24 @@ def render_header() -> None:
 
         if database_connected:
 
-            st.markdown(
-                """
-<div class="registry-status">
-
-    <div class="status-online">
-
-        <span class="status-dot"></span>
-
-        System Online
-
-    </div>
-
-    <div class="registry-version">
-        Registry Platform
-    </div>
-
-    <div class="registry-version">
-        Version 1.0.0
-    </div>
-
-</div>
-                """,
-                unsafe_allow_html=True,
+            st.success(
+                "System Online"
             )
 
         else:
 
-            st.markdown(
-                """
-<div class="registry-status">
-
-    <div class="status-warning">
-
-        <span class="status-dot-warning"></span>
-
-        Database Attention
-
-    </div>
-
-    <div class="registry-version">
-        Registry Platform
-    </div>
-
-    <div class="registry-version">
-        Version 1.0.0
-    </div>
-
-</div>
-                """,
-                unsafe_allow_html=True,
+            st.warning(
+                "Database Attention"
             )
+
+
+        st.caption(
+            "Registry Platform"
+        )
+
+        st.caption(
+            "Version 1.0.0"
+        )
 
 
     st.markdown(
@@ -1448,29 +1678,34 @@ def render_page_header(
 ) -> None:
 
     st.markdown(
-        f"""
-<div class="overview-card">
+        '<div class="page-card">',
+        unsafe_allow_html=True,
+    )
 
-    <div class="registry-kicker">
-        South Sudan National Registry
-    </div>
 
-    <div class="registry-heading">
-        {title}
-    </div>
+    st.caption(
+        "South Sudan National Registry"
+    )
 
-    <div class="registry-description">
-        {description}
-    </div>
 
-</div>
-        """,
+    st.subheader(
+        title
+    )
+
+
+    st.write(
+        description
+    )
+
+
+    st.markdown(
+        "</div>",
         unsafe_allow_html=True,
     )
 
 
 # ============================================================
-# KPI
+# KPI CARD
 # ============================================================
 
 def render_kpi(
@@ -1481,21 +1716,21 @@ def render_kpi(
 
     st.markdown(
         f"""
-<div class="kpi-card">
+        <div class="kpi-card">
 
-    <div class="kpi-label">
-        {label}
-    </div>
+            <div class="kpi-label">
+                {label}
+            </div>
 
-    <div class="kpi-value">
-        {value}
-    </div>
+            <div class="kpi-value">
+                {value}
+            </div>
 
-    <div class="kpi-description">
-        {description}
-    </div>
+            <div class="kpi-description">
+                {description}
+            </div>
 
-</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -1512,17 +1747,17 @@ def render_module_card(
 
     st.markdown(
         f"""
-<div class="module-card">
+        <div class="module-card">
 
-    <div class="module-name">
-        {title}
-    </div>
+            <div class="module-name">
+                {title}
+            </div>
 
-    <div class="module-description">
-        {description}
-    </div>
+            <div class="module-description">
+                {description}
+            </div>
 
-</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -1545,10 +1780,12 @@ def render_overview() -> None:
 
 
     # --------------------------------------------------------
-    # KPI CARDS
+    # KPI
     # --------------------------------------------------------
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4 = st.columns(
+        4
+    )
 
 
     with col1:
@@ -1605,7 +1842,8 @@ def render_overview() -> None:
             "Population Registry",
             (
                 "Manage national population records, "
-                "households, persons and demographic information."
+                "households, persons and demographic "
+                "information."
             ),
         ),
 
@@ -1651,7 +1889,9 @@ def render_overview() -> None:
     ]
 
 
-    columns = st.columns(3)
+    service_columns = st.columns(
+        3
+    )
 
 
     for index, (
@@ -1659,7 +1899,7 @@ def render_overview() -> None:
         description,
     ) in enumerate(services):
 
-        with columns[
+        with service_columns[
             index % 3
         ]:
 
@@ -1681,7 +1921,9 @@ def render_overview() -> None:
     )
 
 
-    status_col1, status_col2 = st.columns(2)
+    status_col1, status_col2 = st.columns(
+        2
+    )
 
 
     with status_col1:
@@ -1701,9 +1943,56 @@ def render_overview() -> None:
 
     with status_col2:
 
-        st.success(
-            "Registry Interface Available"
-        )
+        if registry_available:
+
+            st.success(
+                "Registry Module System Available"
+            )
+
+        else:
+
+            st.warning(
+                "Registry Module System Unavailable"
+            )
+
+
+    # --------------------------------------------------------
+    # DATABASE TECHNICAL DETAILS
+    # --------------------------------------------------------
+
+    if not database_connected:
+
+        with st.expander(
+            "Database technical details"
+        ):
+
+            if database_error_text:
+
+                st.code(
+                    database_error_text
+                )
+
+            else:
+
+                st.write(
+                    "No database error information is available."
+                )
+
+
+    # --------------------------------------------------------
+    # MODULE TECHNICAL DETAILS
+    # --------------------------------------------------------
+
+    if not registry_available:
+
+        with st.expander(
+            "Module registry technical details"
+        ):
+
+            st.code(
+                registry_import_error
+                or "Unknown module registry error."
+            )
 
 
 # ============================================================
@@ -1721,7 +2010,9 @@ def render_citizens() -> None:
     )
 
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4 = st.columns(
+        4
+    )
 
 
     with col1:
@@ -1775,140 +2066,64 @@ def render_citizens() -> None:
 
 
 # ============================================================
-# PLACEHOLDER PAGES
+# PLACEHOLDER PAGE
 # ============================================================
-
-PLACEHOLDER_PAGES = {
-
-    "population": (
-        "Population Registry",
-        (
-            "Manage national population records, persons, "
-            "households and demographic information."
-        ),
-    ),
-
-    "civil_registration": (
-        "Civil Registration",
-        (
-            "Register births, deaths, marriages, certificates "
-            "and other civil events."
-        ),
-    ),
-
-    "identity": (
-        "Identity Management",
-        (
-            "Manage national identity registration, "
-            "identification records and identity services."
-        ),
-    ),
-
-    "elections": (
-        "Elections",
-        (
-            "Manage electoral registration, voter records "
-            "and election administration."
-        ),
-    ),
-
-    "households": (
-        "Households",
-        (
-            "Manage household records and household "
-            "relationships."
-        ),
-    ),
-
-    "documents": (
-        "Documents",
-        (
-            "Manage Registry documents, certificates "
-            "and official records."
-        ),
-    ),
-
-    "verification": (
-        "Verification",
-        (
-            "Verify population, civil registration "
-            "and identity records."
-        ),
-    ),
-
-    "reports": (
-        "Reports & Analytics",
-        (
-            "Generate operational reports, statistical "
-            "summaries and Registry analytics."
-        ),
-    ),
-
-    "administration": (
-        "Administration",
-        (
-            "Manage users, roles, permissions, configuration "
-            "and system administration."
-        ),
-    ),
-
-    "settings": (
-        "System Settings",
-        (
-            "Configure Registry platform settings "
-            "and system preferences."
-        ),
-    ),
-
-    "statistics": (
-        "Statistics",
-        (
-            "View national Registry statistics "
-            "and demographic summaries."
-        ),
-    ),
-
-    "audit": (
-        "Audit & Activity",
-        (
-            "Review Registry activity, administrative events "
-            "and audit information."
-        ),
-    ),
-}
-
 
 def render_placeholder(
     key: str,
 ) -> None:
 
-    title, description = (
-        PLACEHOLDER_PAGES.get(
-            key,
-            (
-                "Registry Feature",
-                "Registry feature.",
-            ),
-        )
+    title, description = PAGE_DEFINITIONS.get(
+        key,
+        (
+            "Registry Feature",
+            "Registry feature.",
+        ),
     )
+
 
     render_page_header(
         title,
         description,
     )
 
+
     st.info(
         f"{title} is ready for implementation."
     )
 
 
+    # Basic empty state
+
+    st.subheader(
+        "Records"
+    )
+
+
+    st.caption(
+        "No records are currently available."
+    )
+
+
 # ============================================================
-# REGISTERED MODULES
+# REGISTERED MODULE
 # ============================================================
 
-def render_registered_module(
-    active_key: str,
+def try_render_registered_module(
+    key: str,
 ) -> bool:
+    """
+    Attempt to render an existing module from modules.registry.
+
+    Returns:
+        True  -> module was found/handled
+        False -> module was not found
+    """
+
+    if not registry_available:
+
+        return False
+
 
     if get_module is None:
 
@@ -1918,14 +2133,14 @@ def render_registered_module(
     try:
 
         module = get_module(
-            active_key
+            key
         )
 
     except Exception as exc:
 
         logger.exception(
-            "Unable to retrieve Registry module '%s'.",
-            active_key,
+            "Unable to retrieve module '%s'.",
+            key,
         )
 
         st.error(
@@ -1946,10 +2161,10 @@ def render_registered_module(
         return False
 
 
-    label = getattr(
+    title = getattr(
         module,
         "label",
-        active_key.replace(
+        key.replace(
             "_",
             " ",
         ).title(),
@@ -1959,16 +2174,13 @@ def render_registered_module(
     description = getattr(
         module,
         "description",
-        "",
+        "Registry management module.",
     )
 
 
     render_page_header(
-        str(label),
-        str(
-            description
-            or "Registry management module."
-        ),
+        str(title),
+        str(description),
     )
 
 
@@ -1987,11 +2199,13 @@ def render_registered_module(
             "This Registry module is currently unavailable."
         )
 
+
         error = getattr(
             module,
             "error",
             None,
         )
+
 
         if error:
 
@@ -2002,6 +2216,7 @@ def render_registered_module(
                 st.code(
                     str(error)
                 )
+
 
         return True
 
@@ -2018,10 +2233,13 @@ def render_registered_module(
     try:
 
         render_module(
-            active_key
+            key
         )
 
     except TypeError:
+
+        # Compatibility with registries whose renderer expects
+        # the module object rather than its key.
 
         try:
 
@@ -2032,13 +2250,13 @@ def render_registered_module(
         except Exception as exc:
 
             logger.exception(
-                "Registry module '%s' failed.",
-                active_key,
+                "Module '%s' failed.",
+                key,
             )
 
             st.error(
-                "The selected Registry module "
-                "encountered a runtime error."
+                "The selected Registry module encountered "
+                "a runtime error."
             )
 
             with st.expander(
@@ -2051,13 +2269,13 @@ def render_registered_module(
     except Exception as exc:
 
         logger.exception(
-            "Registry module '%s' failed.",
-            active_key,
+            "Module '%s' failed.",
+            key,
         )
 
         st.error(
-            "The selected Registry module "
-            "encountered a runtime error."
+            "The selected Registry module encountered "
+            "a runtime error."
         )
 
         with st.expander(
@@ -2071,76 +2289,74 @@ def render_registered_module(
 
 
 # ============================================================
-# APPLICATION
+# APPLICATION START
 # ============================================================
 
 inject_css()
 
-sidebar_navigation()
+render_sidebar()
 
 render_header()
 
 
 # ============================================================
-# ACTIVE PAGE
+# ACTIVE MODULE
 # ============================================================
 
-active_key = str(
+active_module = str(
     st.session_state.active_module
 )
 
 
-if active_key == "overview":
+# ============================================================
+# OVERVIEW
+# ============================================================
+
+if active_module == "overview":
 
     render_overview()
 
 
-elif active_key == "citizens":
+# ============================================================
+# CITIZENS
+# ============================================================
+
+elif active_module == "citizens":
 
     render_citizens()
 
 
-elif active_key in PLACEHOLDER_PAGES:
+# ============================================================
+# STATIC APPLICATION PAGES
+# ============================================================
+
+elif active_module in PAGE_DEFINITIONS:
 
     render_placeholder(
-        active_key
+        active_module
     )
 
+
+# ============================================================
+# EXISTING MODULE REGISTRY
+# ============================================================
 
 else:
 
-    handled = render_registered_module(
-        active_key
+    handled = try_render_registered_module(
+        active_module
     )
+
 
     if not handled:
 
         st.error(
-            "The requested Registry module "
-            "could not be found."
+            "The requested Registry module could not be found."
         )
 
-
-# ============================================================
-# DATABASE NOTICE
-# ============================================================
-
-if not database_connected:
-
-    st.warning(
-        "The Registry interface is running without "
-        "a connected database."
-    )
-
-    if database_error:
-
-        with st.expander(
-            "Database technical details"
-        ):
-
-            st.exception(
-                database_error
-            )
+        st.info(
+            "Select another module from the sidebar."
+        )
 
 
 # ============================================================
@@ -2150,35 +2366,23 @@ if not database_connected:
 st.divider()
 
 
-footer_col1, footer_col2 = st.columns(2)
+footer_col1, footer_col2 = st.columns(
+    2
+)
 
 
 with footer_col1:
 
-    st.markdown(
-        """
-<div class="registry-footer">
-
-    South Sudan National Registry •
-    Registry Platform • Version 1.0.0
-
-</div>
-        """,
-        unsafe_allow_html=True,
+    st.caption(
+        "South Sudan National Registry • "
+        "Registry Platform • Version 1.0.0"
     )
 
 
 with footer_col2:
 
-    st.markdown(
-        """
-<div class="registry-footer">
-
-    Registry data should be treated as authoritative
-    only after verification and appropriate
-    administrative approval.
-
-</div>
-        """,
-        unsafe_allow_html=True,
+    st.caption(
+        "Registry data should be treated as authoritative "
+        "only after verification and appropriate "
+        "administrative approval."
 )
