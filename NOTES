@@ -1,0 +1,41 @@
+southsudannationalregistry/
+│
+├── streamlit_app.py
+│
+├── app/
+│   ├── page.tsx
+│   ├── layout.tsx
+│   └── globals.css
+│
+├── modules/
+│   ├── citizens/
+│   ├── households/
+│   ├── civil_registration/
+│   ├── identity/
+│   ├── locations/
+│   ├── documents/
+│   ├── verification/
+│   ├── reports/
+│   └── administration/
+│
+├── ai/
+│   ├── assistant.py
+│   ├── analytics.py
+│   └── data_quality.py
+│
+├── database/
+│   ├── models.py
+│   ├── database.py
+│   └── seed.py
+│
+├── services/
+│   ├── citizen_service.py
+│   ├── identity_service.py
+│   ├── registration_service.py
+│   └── verification_service.py
+│
+├── assets/
+│   └── ...
+│
+├── requirements.txt
+└── README.md
