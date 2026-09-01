@@ -1,169 +1,441 @@
 """
-Central module registry for the South Sudan National Registry.
+South Sudan National Registry
+Module Registry
 
-Each module exposes:
+Central module loader for the Streamlit AI Studio.
 
-    render()
+Architecture:
 
-The Streamlit application discovers modules through this registry.
+    streamlit_app.py
+          |
+          ▼
+    modules.registry
+          |
+    ┌─────┼───────────────────────────┐
+    ▼     ▼                           ▼
+  Civil Identity   Elections ...   Administration
+    |
+    ▼
+  services
+    |
+    ▼
+  database
 """
 
 from __future__ import annotations
 
+import importlib
+import logging
 from dataclasses import dataclass
-from typing import Callable
+from types import ModuleType
+from typing import Callable, Optional
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+logger = logging.getLogger(
+    "south_sudan_registry.modules"
+)
+
+
+# ============================================================
+# TYPES
+# ============================================================
+
+RenderFunction = Callable[[], object]
 
 
 @dataclass(frozen=True)
-class ModuleDefinition:
-    """Definition of a Streamlit application module."""
+class RegistryModule:
+    """
+    Description of a Streamlit application module.
+    """
 
     key: str
     label: str
-    description: str
-    icon: str
-    render: Callable
+    module_path: str
+    category: str
+    icon: str = ""
+    description: str = ""
+    render: Optional[RenderFunction] = None
+    available: bool = False
+    error: Optional[str] = None
 
 
-def _load_modules() -> list[ModuleDefinition]:
-    """Load all application modules."""
+# ============================================================
+# MODULE DEFINITIONS
+# ============================================================
 
-    from .administration import render as administration
-    from .ai_studio import render as ai_studio
-    from .citizens import render as citizens
-    from .civil_registration import render as civil_registration
-    from .documents import render as documents
-    from .elections import render as elections
-    from .households import render as households
-    from .identity import render as identity
-    from .overview import render as overview
-    from .reports import render as reports
-    from .verification import render as verification
+MODULE_DEFINITIONS = [
+    {
+        "key": "civil_registration",
+        "label": "Civil Registration",
+        "module_path": "modules.civil_registration",
+        "category": "Registry",
+        "icon": "Civil",
+        "description": (
+            "Birth, death, marriage and divorce "
+            "registration."
+        ),
+    },
+    {
+        "key": "identity",
+        "label": "Identity",
+        "module_path": "modules.identity",
+        "category": "Registry",
+        "icon": "ID",
+        "description": (
+            "National identity registration and "
+            "identity management."
+        ),
+    },
+    {
+        "key": "elections",
+        "label": "Elections",
+        "module_path": "modules.elections",
+        "category": "Electoral",
+        "icon": "Election",
+        "description": (
+            "Voter registration, electoral roll and "
+            "polling operations."
+        ),
+    },
+    {
+        "key": "documents",
+        "label": "Documents",
+        "module_path": "modules.documents",
+        "category": "Registry",
+        "icon": "Docs",
+        "description": (
+            "Identity and civil registration documents."
+        ),
+    },
+    {
+        "key": "verification",
+        "label": "Verification",
+        "module_path": "modules.verification",
+        "category": "Registry",
+        "icon": "Verify",
+        "description": (
+            "Citizen and document verification workflows."
+        ),
+    },
+    {
+        "key": "reports",
+        "label": "Reports",
+        "module_path": "modules.reports",
+        "category": "Analytics",
+        "icon": "Reports",
+        "description": (
+            "Registry statistics, analytics and reports."
+        ),
+    },
+    {
+        "key": "ai_studio",
+        "label": "AI Studio",
+        "module_path": "modules.ai_studio",
+        "category": "AI",
+        "icon": "AI",
+        "description": (
+            "AI-assisted registry analysis and "
+            "administrative workflows."
+        ),
+    },
+    {
+        "key": "administration",
+        "label": "Administration",
+        "module_path": "modules.administration",
+        "category": "Administration",
+        "icon": "Admin",
+        "description": (
+            "Users, permissions, administrative units "
+            "and system configuration."
+        ),
+    },
+]
 
-    return [
-        ModuleDefinition(
-            key="overview",
-            label="Overview",
-            description="National registry operational dashboard.",
-            icon="⌂",
-            render=overview,
-        ),
-        ModuleDefinition(
-            key="citizens",
-            label="Citizens",
-            description="Citizen registration and records.",
-            icon="C",
-            render=citizens,
-        ),
-        ModuleDefinition(
-            key="households",
-            label="Households",
-            description="Household registration and membership.",
-            icon="H",
-            render=households,
-        ),
-        ModuleDefinition(
-            key="civil_registration",
-            label="Civil Registration",
-            description="Birth, death, marriage and divorce records.",
-            icon="CR",
-            render=civil_registration,
-        ),
-        ModuleDefinition(
-            key="identity",
-            label="Identity",
-            description="Identity registration and identity records.",
-            icon="ID",
-            render=identity,
-        ),
-        ModuleDefinition(
-            key="elections",
-            label="Elections",
-            description="Voter registration and electoral records.",
-            icon="E",
-            render=elections,
-        ),
-        ModuleDefinition(
-            key="documents",
-            label="Documents",
-            description="Registry and identity documents.",
-            icon="D",
-            render=documents,
-        ),
-        ModuleDefinition(
-            key="verification",
-            label="Verification",
-            description="Citizen verification workflow.",
-            icon="V",
-            render=verification,
-        ),
-        ModuleDefinition(
-            key="reports",
-            label="Reports",
-            description="Registry analytics and reporting.",
-            icon="R",
-            render=reports,
-        ),
-        ModuleDefinition(
-            key="ai_studio",
-            label="AI Studio",
-            description="AI-assisted registry analysis.",
-            icon="AI",
-            render=ai_studio,
-        ),
-        ModuleDefinition(
-            key="administration",
-            label="Administration",
-            description="System administration and audit.",
-            icon="A",
-            render=administration,
-        ),
-    ]
+
+# ============================================================
+# MODULE LOADER
+# ============================================================
+
+def _load_module(
+    definition: dict,
+) -> RegistryModule:
+    """
+    Safely import one registry module.
+
+    A failure in one module must not prevent the rest of
+    the Streamlit application from starting.
+    """
+
+    key = definition["key"]
+    label = definition["label"]
+    module_path = definition["module_path"]
+    category = definition["category"]
+    icon = definition.get("icon", "")
+    description = definition.get(
+        "description",
+        "",
+    )
+
+    try:
+
+        module: ModuleType = importlib.import_module(
+            module_path
+        )
+
+    except Exception as exc:
+
+        error = (
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        logger.exception(
+            "Unable to import registry module '%s'",
+            module_path,
+        )
+
+        return RegistryModule(
+            key=key,
+            label=label,
+            module_path=module_path,
+            category=category,
+            icon=icon,
+            description=description,
+            render=None,
+            available=False,
+            error=error,
+        )
+
+    render = getattr(
+        module,
+        "render",
+        None,
+    )
+
+    if not callable(render):
+
+        error = (
+            f"Module '{module_path}' does not expose "
+            "a callable render() function."
+        )
+
+        logger.error(error)
+
+        return RegistryModule(
+            key=key,
+            label=label,
+            module_path=module_path,
+            category=category,
+            icon=icon,
+            description=description,
+            render=None,
+            available=False,
+            error=error,
+        )
+
+    return RegistryModule(
+        key=key,
+        label=label,
+        module_path=module_path,
+        category=category,
+        icon=icon,
+        description=description,
+        render=render,
+        available=True,
+        error=None,
+    )
+
+
+# ============================================================
+# LOAD ALL MODULES
+# ============================================================
+
+def _load_modules() -> dict[str, RegistryModule]:
+    """
+    Load all configured modules.
+
+    Returns a dictionary keyed by module key.
+    """
+
+    modules: dict[str, RegistryModule] = {}
+
+    for definition in MODULE_DEFINITIONS:
+
+        module = _load_module(
+            definition
+        )
+
+        modules[module.key] = module
+
+    return modules
 
 
 MODULES = _load_modules()
 
 
-def get_modules() -> list[ModuleDefinition]:
-    """Return all registered modules."""
-
-    return MODULES.copy()
-
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 def get_module(
     key: str,
-) -> ModuleDefinition | None:
-    """Return a module by key."""
+) -> Optional[RegistryModule]:
+    """
+    Return a module by key.
+    """
 
-    normalized = key.strip().lower()
-
-    for module in MODULES:
-
-        if module.key == normalized:
-            return module
-
-    return None
+    return MODULES.get(key)
 
 
-def get_module_labels() -> list[str]:
-    """Return module labels for navigation."""
+def get_available_modules() -> list[RegistryModule]:
+    """
+    Return modules that successfully loaded.
+    """
 
     return [
-        module.label
-        for module in MODULES
+        module
+        for module in MODULES.values()
+        if module.available
     ]
 
 
-def get_module_by_label(
-    label: str,
-) -> ModuleDefinition | None:
-    """Return a module using its display label."""
+def get_unavailable_modules() -> list[RegistryModule]:
+    """
+    Return modules that failed to load.
+    """
 
-    normalized = label.strip().lower()
+    return [
+        module
+        for module in MODULES.values()
+        if not module.available
+    ]
 
-    for module in MODULES:
 
-        if module.label.lower() == normalized:
-            return module
+def get_modules_by_category(
+    category: str,
+) -> list[RegistryModule]:
+    """
+    Return available modules in a category.
+    """
 
-    return None
+    return [
+        module
+        for module in get_available_modules()
+        if module.category == category
+    ]
+
+
+def get_module_keys() -> list[str]:
+    """
+    Return all configured module keys.
+    """
+
+    return list(MODULES.keys())
+
+
+def is_module_available(
+    key: str,
+) -> bool:
+    """
+    Determine whether a module is available.
+    """
+
+    module = get_module(key)
+
+    return bool(
+        module
+        and module.available
+        and module.render
+    )
+
+
+def render_module(
+    key: str,
+) -> object:
+    """
+    Render a registry module.
+
+    Raises:
+        KeyError:
+            If the module does not exist.
+
+        RuntimeError:
+            If the module is unavailable.
+    """
+
+    module = get_module(key)
+
+    if module is None:
+
+        raise KeyError(
+            f"Unknown registry module: {key}"
+        )
+
+    if not module.available:
+
+        raise RuntimeError(
+            f"Registry module '{key}' is unavailable. "
+            f"{module.error or ''}".strip()
+        )
+
+    if module.render is None:
+
+        raise RuntimeError(
+            f"Registry module '{key}' has no render() function."
+        )
+
+    return module.render()
+
+
+# ============================================================
+# MODULE STATUS
+# ============================================================
+
+def module_status() -> list[dict[str, object]]:
+    """
+    Return module status information suitable for
+    Streamlit administration/debugging views.
+    """
+
+    return [
+        {
+            "key": module.key,
+            "label": module.label,
+            "category": module.category,
+            "module_path": module.module_path,
+            "available": module.available,
+            "error": module.error,
+        }
+        for module in MODULES.values()
+    ]
+
+
+# ============================================================
+# DEBUGGING
+# ============================================================
+
+def print_module_status() -> None:
+    """
+    Print module status to the application logs.
+    """
+
+    for module in MODULES.values():
+
+        if module.available:
+
+            logger.info(
+                "Registry module available: %s",
+                module.key,
+            )
+
+        else:
+
+            logger.warning(
+                "Registry module unavailable: %s — %s",
+                module.key,
+                module.error,
+        )
