@@ -1,0 +1,7 @@
+{
+  "name": "South Sudan National Registry",
+  "description": "Official national population census, civil registry, administrative hierarchy (State, County, Payam, Boma), and electoral roll portal for the Republic of South Sudan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
