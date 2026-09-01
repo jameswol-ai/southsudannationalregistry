@@ -154,3 +154,67 @@ southsudannationalregistry/
 │   └── administration.py
 │
 └── streamlit_app.py
+
+
+app/
+├── api/
+│   └── registry/
+│       └── [...path]/
+│           └── route.ts
+│
+├── dashboard/
+│   └── page.tsx
+│
+├── citizens/
+│   ├── page.tsx
+│   └── [id]/
+│       └── page.tsx
+│
+├── households/
+│   └── page.tsx
+│
+├── civil-registration/
+│   └── page.tsx
+│
+├── identity/
+│   └── page.tsx
+│
+├── verification/
+│   └── page.tsx
+│
+├── elections/
+│   └── page.tsx
+│
+├── documents/
+│   └── page.tsx
+│
+├── reports/
+│   └── page.tsx
+│
+├── ai-studio/
+│   └── page.tsx
+│
+├── administration/
+│   └── page.tsx
+│
+├── layout.tsx
+└── page.tsx
+
+components/
+├── registry/
+│   ├── RegistryShell.tsx
+│   ├── RegistryNavigation.tsx
+│   ├── StatCard.tsx
+│   ├── CitizenTable.tsx
+│   ├── HouseholdTable.tsx
+│   └── VerificationQueue.tsx
+│
+└── ai/
+    ├── AIChat.tsx
+    ├── AIMessage.tsx
+    └── AICommandBar.tsx
+
+lib/
+├── registry-api.ts
+├── types.ts
+└── config.ts
