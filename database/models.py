@@ -1,22 +1,26 @@
 """
 SQLAlchemy models for the South Sudan National Registry.
 
-The models are deliberately database-oriented and shared by:
+Shared architecture:
 
     Next.js AI Studio
             |
         Registry API
             |
+        Services
+            |
         SQLAlchemy
             |
-      PostgreSQL / SQLite
+    PostgreSQL / SQLite
             |
         Streamlit AI Studio
+
+The database models are intentionally independent of either frontend.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
@@ -25,11 +29,16 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    Mapped,
+    mapped_column,
+    relationship,
+)
 
 from .database import Base
 
@@ -39,7 +48,22 @@ from .database import Base
 # ============================================================
 
 class Citizen(Base):
+    """
+    Master citizen record.
+
+    A Citizen may have:
+
+        - one Household
+        - many Civil Events
+        - many Identity Documents
+        - one Voter Record
+    """
+
     __tablename__ = "citizens"
+
+    # --------------------------------------------------------
+    # Primary Identity
+    # --------------------------------------------------------
 
     id: Mapped[str] = mapped_column(
         String(64),
@@ -54,15 +78,12 @@ class Citizen(Base):
 
     passport_number: Mapped[Optional[str]] = mapped_column(
         String(100),
+        index=True,
     )
 
     id_document_type: Mapped[Optional[str]] = mapped_column(
         String(100),
     )
-
-    # --------------------------------------------------------
-    # Identity
-    # --------------------------------------------------------
 
     full_name: Mapped[str] = mapped_column(
         String(255),
@@ -70,8 +91,9 @@ class Citizen(Base):
         index=True,
     )
 
-    date_of_birth: Mapped[Optional[Date]] = mapped_column(
+    date_of_birth: Mapped[Optional[date]] = mapped_column(
         Date,
+        index=True,
     )
 
     age: Mapped[int] = mapped_column(
@@ -82,16 +104,19 @@ class Citizen(Base):
     gender: Mapped[str] = mapped_column(
         String(50),
         default="Other",
+        nullable=False,
     )
 
     marital_status: Mapped[str] = mapped_column(
         String(50),
         default="Single",
+        nullable=False,
     )
 
     nationality: Mapped[str] = mapped_column(
         String(100),
         default="South Sudanese",
+        nullable=False,
     )
 
     # --------------------------------------------------------
@@ -100,10 +125,12 @@ class Citizen(Base):
 
     phone_number: Mapped[Optional[str]] = mapped_column(
         String(50),
+        index=True,
     )
 
     email_address: Mapped[Optional[str]] = mapped_column(
         String(255),
+        index=True,
     )
 
     emergency_contact_name: Mapped[Optional[str]] = mapped_column(
@@ -145,6 +172,7 @@ class Citizen(Base):
     county_or_payam: Mapped[str] = mapped_column(
         String(150),
         default="",
+        index=True,
     )
 
     sub_county_or_boma: Mapped[str] = mapped_column(
@@ -154,11 +182,13 @@ class Citizen(Base):
 
     boma: Mapped[Optional[str]] = mapped_column(
         String(150),
+        index=True,
     )
 
     community: Mapped[str] = mapped_column(
         String(255),
         default="",
+        index=True,
     )
 
     residential_address: Mapped[Optional[str]] = mapped_column(
@@ -167,7 +197,7 @@ class Citizen(Base):
 
     duration_of_stay_years: Mapped[float] = mapped_column(
         Float,
-        default=0,
+        default=0.0,
     )
 
     # --------------------------------------------------------
@@ -185,11 +215,13 @@ class Citizen(Base):
     household_role: Mapped[str] = mapped_column(
         String(100),
         default="Head of Household",
+        nullable=False,
     )
 
     is_household_head: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
     )
 
     household: Mapped[Optional["Household"]] = relationship(
@@ -205,11 +237,13 @@ class Citizen(Base):
     education_level: Mapped[str] = mapped_column(
         String(150),
         default="None / Informal",
+        nullable=False,
     )
 
     is_literate: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
     )
 
     # --------------------------------------------------------
@@ -219,6 +253,7 @@ class Citizen(Base):
     employment_status: Mapped[str] = mapped_column(
         String(150),
         default="Unemployed / Seeking Work",
+        nullable=False,
     )
 
     primary_occupation: Mapped[Optional[str]] = mapped_column(
@@ -244,6 +279,7 @@ class Citizen(Base):
     has_special_needs_or_disability: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
     )
 
     disability_type: Mapped[Optional[str]] = mapped_column(
@@ -259,24 +295,28 @@ class Citizen(Base):
     )
 
     # --------------------------------------------------------
-    # Voter
+    # Elections
     # --------------------------------------------------------
 
     voter_id_number: Mapped[Optional[str]] = mapped_column(
         String(100),
         unique=True,
+        index=True,
     )
 
     voter_status: Mapped[Optional[str]] = mapped_column(
         String(100),
+        index=True,
     )
 
     constituency: Mapped[Optional[str]] = mapped_column(
         String(150),
+        index=True,
     )
 
     polling_station_id: Mapped[Optional[str]] = mapped_column(
         String(100),
+        index=True,
     )
 
     polling_station_name: Mapped[Optional[str]] = mapped_column(
@@ -286,6 +326,7 @@ class Citizen(Base):
     has_voted: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
     )
 
     voted_at: Mapped[Optional[datetime]] = mapped_column(
@@ -306,7 +347,7 @@ class Citizen(Base):
         default="",
     )
 
-    enumeration_date: Mapped[Optional[Date]] = mapped_column(
+    enumeration_date: Mapped[Optional[date]] = mapped_column(
         Date,
     )
 
@@ -317,11 +358,24 @@ class Citizen(Base):
     verification_status: Mapped[str] = mapped_column(
         String(100),
         default="Pending Review",
+        nullable=False,
         index=True,
+    )
+
+    verification_notes: Mapped[Optional[str]] = mapped_column(
+        Text,
     )
 
     notes: Mapped[Optional[str]] = mapped_column(
         Text,
+    )
+
+    verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+    )
+
+    verified_by: Mapped[Optional[str]] = mapped_column(
+        String(255),
     )
 
     # --------------------------------------------------------
@@ -331,12 +385,14 @@ class Citizen(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
     )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
+        nullable=False,
     )
 
     # --------------------------------------------------------
@@ -347,12 +403,14 @@ class Citizen(Base):
         "CivilEvent",
         back_populates="citizen",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     documents: Mapped[list["Document"]] = relationship(
         "Document",
         back_populates="citizen",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     voter_record: Mapped[Optional["VoterRecord"]] = relationship(
@@ -360,6 +418,16 @@ class Citizen(Base):
         back_populates="citizen",
         uselist=False,
         cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_citizens_name_location",
+            "full_name",
+            "state_or_region",
+            "county_or_payam",
+        ),
     )
 
 
@@ -368,6 +436,12 @@ class Citizen(Base):
 # ============================================================
 
 class Household(Base):
+    """
+    Registered household.
+
+    A household may contain multiple citizens.
+    """
+
     __tablename__ = "households"
 
     id: Mapped[str] = mapped_column(
@@ -384,16 +458,19 @@ class Household(Base):
 
     head_citizen_id: Mapped[Optional[str]] = mapped_column(
         String(64),
+        index=True,
     )
 
     state_or_region: Mapped[str] = mapped_column(
         String(150),
         default="",
         index=True,
+        nullable=False,
     )
 
     county_or_payam: Mapped[Optional[str]] = mapped_column(
         String(150),
+        index=True,
     )
 
     sub_county_or_boma: Mapped[Optional[str]] = mapped_column(
@@ -402,10 +479,12 @@ class Household(Base):
 
     boma: Mapped[Optional[str]] = mapped_column(
         String(150),
+        index=True,
     )
 
     community: Mapped[Optional[str]] = mapped_column(
         String(255),
+        index=True,
     )
 
     residential_address: Mapped[Optional[str]] = mapped_column(
@@ -415,12 +494,14 @@ class Household(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
     )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
+        nullable=False,
     )
 
     members: Mapped[list["Citizen"]] = relationship(
@@ -435,6 +516,17 @@ class Household(Base):
 # ============================================================
 
 class CivilEvent(Base):
+    """
+    Civil registration event.
+
+    Supported event types include:
+
+        Birth
+        Death
+        Marriage
+        Divorce
+    """
+
     __tablename__ = "civil_events"
 
     id: Mapped[str] = mapped_column(
@@ -452,6 +544,7 @@ class CivilEvent(Base):
     event_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
+        index=True,
     )
 
     citizen_id: Mapped[Optional[str]] = mapped_column(
@@ -462,22 +555,27 @@ class CivilEvent(Base):
         index=True,
     )
 
-    event_date: Mapped[Date] = mapped_column(
+    event_date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
+        index=True,
     )
 
     registration_centre: Mapped[Optional[str]] = mapped_column(
         String(255),
+        index=True,
     )
 
     document_number: Mapped[Optional[str]] = mapped_column(
         String(100),
+        index=True,
     )
 
     status: Mapped[str] = mapped_column(
         String(100),
         default="Pending Review",
+        nullable=False,
+        index=True,
     )
 
     notes: Mapped[Optional[str]] = mapped_column(
@@ -487,6 +585,7 @@ class CivilEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
     )
 
     citizen: Mapped[Optional[Citizen]] = relationship(
@@ -500,6 +599,10 @@ class CivilEvent(Base):
 # ============================================================
 
 class Document(Base):
+    """
+    Identity or civil registration document.
+    """
+
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(
@@ -515,6 +618,7 @@ class Document(Base):
     document_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
+        index=True,
     )
 
     citizen_id: Mapped[Optional[str]] = mapped_column(
@@ -529,14 +633,29 @@ class Document(Base):
         String(255),
     )
 
+    file_path: Mapped[Optional[str]] = mapped_column(
+        String(500),
+    )
+
     status: Mapped[str] = mapped_column(
         String(100),
         default="Registered",
+        nullable=False,
+        index=True,
+    )
+
+    issued_date: Mapped[Optional[date]] = mapped_column(
+        Date,
+    )
+
+    expiry_date: Mapped[Optional[date]] = mapped_column(
+        Date,
     )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
     )
 
     citizen: Mapped[Optional[Citizen]] = relationship(
@@ -550,6 +669,10 @@ class Document(Base):
 # ============================================================
 
 class VoterRecord(Base):
+    """
+    Electoral record associated with exactly one citizen.
+    """
+
     __tablename__ = "voter_records"
 
     id: Mapped[str] = mapped_column(
@@ -564,24 +687,30 @@ class VoterRecord(Base):
         ),
         unique=True,
         nullable=False,
+        index=True,
     )
 
     voter_id_number: Mapped[Optional[str]] = mapped_column(
         String(100),
         unique=True,
+        index=True,
     )
 
     voter_status: Mapped[str] = mapped_column(
         String(100),
         default="Active",
+        nullable=False,
+        index=True,
     )
 
     constituency: Mapped[Optional[str]] = mapped_column(
         String(150),
+        index=True,
     )
 
     polling_station_id: Mapped[Optional[str]] = mapped_column(
         String(100),
+        index=True,
     )
 
     polling_station_name: Mapped[Optional[str]] = mapped_column(
@@ -591,6 +720,7 @@ class VoterRecord(Base):
     has_voted: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
     )
 
     voted_at: Mapped[Optional[datetime]] = mapped_column(
@@ -600,12 +730,14 @@ class VoterRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
     )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
+        nullable=False,
     )
 
     citizen: Mapped[Citizen] = relationship(
@@ -619,6 +751,18 @@ class VoterRecord(Base):
 # ============================================================
 
 class AdministrativeUnit(Base):
+    """
+    Administrative hierarchy.
+
+    Example:
+
+        Country
+          └── State
+                └── County
+                      └── Payam
+                            └── Boma
+    """
+
     __tablename__ = "administrative_units"
 
     id: Mapped[str] = mapped_column(
@@ -642,6 +786,7 @@ class AdministrativeUnit(Base):
         String(100),
         unique=True,
         nullable=False,
+        index=True,
     )
 
     parent_id: Mapped[Optional[str]] = mapped_column(
@@ -649,11 +794,13 @@ class AdministrativeUnit(Base):
             "administrative_units.id",
             ondelete="SET NULL",
         ),
+        index=True,
     )
 
     state_or_region: Mapped[str] = mapped_column(
         String(150),
         default="",
+        index=True,
     )
 
     administrator_name: Mapped[Optional[str]] = mapped_column(
@@ -672,12 +819,30 @@ class AdministrativeUnit(Base):
         Text,
     )
 
+    parent: Mapped[Optional["AdministrativeUnit"]] = relationship(
+        "AdministrativeUnit",
+        remote_side=[id],
+        back_populates="children",
+    )
+
+    children: Mapped[list["AdministrativeUnit"]] = relationship(
+        "AdministrativeUnit",
+        back_populates="parent",
+    )
+
 
 # ============================================================
 # AUDIT LOG
 # ============================================================
 
 class AuditLog(Base):
+    """
+    Immutable-style application audit event.
+
+    Audit records should normally be created by services rather
+    than directly by frontend modules.
+    """
+
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(
@@ -689,27 +854,39 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
+        index=True,
     )
 
     entity_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
+        index=True,
     )
 
     entity_id: Mapped[Optional[str]] = mapped_column(
         String(100),
+        index=True,
     )
 
     username: Mapped[str] = mapped_column(
         String(255),
         default="system",
+        nullable=False,
+        index=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
+        index=True,
     )
 
     details: Mapped[Optional[str]] = mapped_column(
         Text,
-  )
+    )
+
+
+# ============================================================
+# END OF MODELS
+# ============================================================
