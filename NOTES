@@ -271,3 +271,16 @@ lib/
                             │
                             ▼
                        PostgreSQL
+
+/dashboard
+/citizens
+/citizens/[id]
+/households
+/civil-registration
+/identity
+/verification
+/elections
+/documents
+/reports
+/ai-studio
+/administration
