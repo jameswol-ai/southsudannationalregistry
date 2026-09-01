@@ -26,6 +26,7 @@ Application entry point:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -37,9 +38,16 @@ import streamlit as st
 # This must be executed before Streamlit UI/session-state work.
 # ============================================================
 
+BASE_DIR = Path(__file__).resolve().parent
+
+ASSETS_DIR = BASE_DIR / "assets"
+
+EMBLEM_PATH = ASSETS_DIR / "south_sudan_emblem.png"
+
+
 st.set_page_config(
     page_title="South Sudan National Registry",
-    page_icon="SS",
+    page_icon=str(EMBLEM_PATH) if EMBLEM_PATH.exists() else "SS",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -109,7 +117,7 @@ def load_registry_modules() -> list[Any]:
 
         return list(modules)
 
-    except Exception as exc:
+    except Exception:
 
         logger.exception(
             "Unable to load available registry modules."
@@ -281,60 +289,51 @@ def inject_css() -> None:
         }}
 
 
-        /* ====================================================
-           HEADER
-           ==================================================== */
+        /* # ============================================================
+# HEADER
+# ============================================================
 
-        .registry-header {{
-            background: transparent;
-            border: none;
-            padding: 22px 10px 14px;
-            margin-bottom: 4px;
-            text-align: center;
-        }}
+st.markdown(
+    """
+    <div class="registry-header">
 
-        .registry-brand {{
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }}
+        <div class="registry-brand">
 
-        .registry-emblem {{
-            width: 58px;
-            height: 58px;
-            border-radius: 14px;
+            <div class="registry-title">
+                South Sudan National Registry
+            </div>
 
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            <div class="registry-subtitle">
+                National Population • Civil Registration •
+                Identity • Elections
+            </div>
 
-            background: {theme["accent"]};
-            color: #FFFFFF;
+        </div>
 
-            font-weight: 900;
-            font-size: 19px;
-            letter-spacing: 0.5px;
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-            margin-bottom: 12px;
+if EMBLEM_PATH.exists():
 
-            box-shadow:
-                0 8px 24px rgba(22, 163, 74, 0.20);
-        }}
+    emblem_col1, emblem_col2, emblem_col3 = st.columns(
+        [1, 1, 1]
+    )
 
-        .registry-title {{
-            font-size: 26px;
-            font-weight: 800;
-            line-height: 1.2;
-            color: {theme["text"]};
-        }}
+    with emblem_col2:
 
-        .registry-subtitle {{
-            color: {theme["muted"]};
-            font-size: 13px;
-            line-height: 1.5;
-            margin-top: 7px;
-        }}
+        st.image(
+            str(EMBLEM_PATH),
+            width=78,
+        )
+
+else:
+
+    logger.warning(
+        "South Sudan emblem not found: %s",
+        EMBLEM_PATH,
+)
 
 
         /* ====================================================
@@ -547,7 +546,10 @@ st.markdown(
         <div class="registry-brand">
 
             <div class="registry-emblem">
-                SS
+                <img
+                    src="app/static/south_sudan_emblem.png"
+                    alt="South Sudan National Emblem"
+                />
             </div>
 
             <div class="registry-title">
