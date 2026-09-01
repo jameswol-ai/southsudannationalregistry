@@ -23,12 +23,18 @@ Architecture:
 from __future__ import annotations
 
 import streamlit as st
+
 from database.database import init_db
+from modules.registry import (
+    get_available_modules,
+    get_module,
+    get_modules,
+    render_module,
+)
+
 
 # ============================================================
 # PAGE CONFIGURATION
-# IMPORTANT:
-# This MUST happen before any st.session_state access.
 # ============================================================
 
 st.set_page_config(
@@ -43,13 +49,11 @@ st.set_page_config(
 # DATABASE INITIALIZATION
 # ============================================================
 
-from database.database import init_db
-
-
 @st.cache_resource
 def initialize_database() -> bool:
     """
-    Initialize database tables once per Streamlit process.
+    Initialize the registry database once per
+    Streamlit process.
     """
 
     init_db()
@@ -57,17 +61,23 @@ def initialize_database() -> bool:
     return True
 
 
-initialize_database()
+try:
 
+    initialize_database()
 
-# ============================================================
-# MODULE REGISTRY
-# ============================================================
+except Exception as exc:
 
-from modules.registry import (
-    get_module,
-    get_modules,
-)
+    st.error(
+        "The registry database could not be initialized."
+    )
+
+    with st.expander(
+        "Database error"
+    ):
+
+        st.exception(exc)
+
+    st.stop()
 
 
 # ============================================================
@@ -77,6 +87,7 @@ from modules.registry import (
 if "active_module" not in st.session_state:
 
     st.session_state.active_module = "overview"
+
 
 if "dark_mode" not in st.session_state:
 
@@ -88,6 +99,9 @@ if "dark_mode" not in st.session_state:
 # ============================================================
 
 def inject_css() -> None:
+    """
+    Apply global application styling.
+    """
 
     dark = st.session_state.dark_mode
 
@@ -115,7 +129,9 @@ def inject_css() -> None:
         f"""
         <style>
 
-        html, body, [class*="css"] {{
+        html,
+        body,
+        [class*="css"] {{
             font-family:
                 Inter,
                 -apple-system,
@@ -132,14 +148,18 @@ def inject_css() -> None:
         .block-container {{
             max-width: 1500px;
             padding-top: 1.2rem;
-            padding-bottom: 4rem;
+            padding-bottom: 5rem;
         }}
 
-        h1, h2, h3 {{
+        h1,
+        h2,
+        h3,
+        h4 {{
             color: {text};
         }}
 
-        p, label {{
+        p,
+        label {{
             color: {text};
         }}
 
@@ -191,25 +211,26 @@ def inject_css() -> None:
             margin-bottom: 14px;
         }}
 
+        .overview-card {{
+            background: {surface};
+            border: 1px solid {border};
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }}
+
+        .status-card {{
+            background: {surface_alt};
+            border: 1px solid {border};
+            border-radius: 12px;
+            padding: 14px;
+        }}
+
         div[data-testid="stMetric"] {{
             background: {surface};
             border: 1px solid {border};
             border-radius: 14px;
             padding: 12px;
-        }}
-
-        .bottom-nav {{
-            position: fixed;
-            bottom: 12px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 999;
-            background: {surface};
-            border: 1px solid {border};
-            border-radius: 18px;
-            padding: 8px;
-            box-shadow:
-                0 12px 35px rgba(0, 0, 0, 0.18);
         }}
 
         .stButton > button {{
@@ -233,21 +254,28 @@ inject_css()
 st.markdown(
     """
     <div class="registry-header">
+
         <div class="registry-brand">
+
             <div class="registry-emblem">
                 SS
             </div>
 
             <div>
+
                 <div class="registry-title">
                     South Sudan National Registry
                 </div>
 
                 <div class="registry-subtitle">
-                    National Population • Civil Registration • Identity • Elections
+                    National Population • Civil Registration •
+                    Identity • Elections
                 </div>
+
             </div>
+
         </div>
+
     </div>
     """,
     unsafe_allow_html=True,
@@ -275,6 +303,7 @@ with control_col2:
 
         st.rerun()
 
+
 with control_col3:
 
     if st.button(
@@ -282,88 +311,302 @@ with control_col3:
         use_container_width=True,
     ):
 
+        st.cache_resource.clear()
+
         st.rerun()
+
+
+# ============================================================
+# LOAD MODULES
+# ============================================================
+
+all_modules = get_modules()
+
+available_modules = get_available_modules()
+
+
+# ============================================================
+# OVERVIEW
+# ============================================================
+
+def render_overview() -> None:
+    """
+    Render the Registry Home / Overview page.
+    """
+
+    st.title(
+        "Registry Overview"
+    )
+
+    st.caption(
+        "South Sudan National Registry — Streamlit AI Studio"
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # KPIs
+    # --------------------------------------------------------
+
+    total_modules = len(
+        all_modules
+    )
+
+    available_count = len(
+        available_modules
+    )
+
+    unavailable_count = (
+        total_modules
+        - available_count
+    )
+
+    col1, col2, col3, col4 = st.columns(
+        4
+    )
+
+    with col1:
+
+        st.metric(
+            "Registry Modules",
+            total_modules,
+        )
+
+    with col2:
+
+        st.metric(
+            "Operational",
+            available_count,
+        )
+
+    with col3:
+
+        st.metric(
+            "Attention Required",
+            unavailable_count,
+        )
+
+    with col4:
+
+        st.metric(
+            "Database",
+            "Connected",
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # SYSTEM DESCRIPTION
+    # --------------------------------------------------------
+
+    st.markdown(
+        """
+        <div class="overview-card">
+
+            <h3>
+                National Registry Platform
+            </h3>
+
+            <p>
+                Centralized platform for population
+                registration, civil records, national
+                identity, household information,
+                electoral registration, document
+                management and verification.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # MODULE STATUS
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Module Status"
+    )
+
+    for module in all_modules:
+
+        status_col1, status_col2 = st.columns(
+            [4, 1]
+        )
+
+        with status_col1:
+
+            st.write(
+                f"**{module.label}**"
+            )
+
+            st.caption(
+                module.description
+            )
+
+        with status_col2:
+
+            if module.available:
+
+                st.success(
+                    "Operational"
+                )
+
+            else:
+
+                st.error(
+                    "Unavailable"
+                )
+
+        if not module.available:
+
+            with st.expander(
+                f"Technical details — {module.label}"
+            ):
+
+                st.code(
+                    module.error
+                    or "Unknown module error."
+                )
 
 
 # ============================================================
 # NAVIGATION
 # ============================================================
 
-modules = get_modules()
+st.divider()
 
-module_labels = [
-    module.label
-    for module in modules
+navigation_options = [
+    (
+        "overview",
+        "Overview",
+    )
 ]
 
-active_module = get_module(
-    st.session_state.active_module
+navigation_options.extend(
+    (
+        module.key,
+        module.label,
+    )
+    for module in available_modules
 )
 
-active_label = (
-    active_module.label
-    if active_module
-    else "Overview"
+navigation_labels = [
+    label
+    for _, label in navigation_options
+]
+
+
+# ------------------------------------------------------------
+# Determine current selection
+# ------------------------------------------------------------
+
+current_key = st.session_state.active_module
+
+current_label = next(
+    (
+        label
+        for key, label
+        in navigation_options
+        if key == current_key
+    ),
+    "Overview",
 )
+
 
 selected_label = st.selectbox(
-    "Module",
-    module_labels,
-    index=(
-        module_labels.index(active_label)
-        if active_label in module_labels
-        else 0
+    "Registry module",
+    navigation_labels,
+    index=navigation_labels.index(
+        current_label
     ),
     label_visibility="collapsed",
 )
 
-selected_module = next(
+
+selected_key = next(
     (
-        module
-        for module in modules
-        if module.label == selected_label
+        key
+        for key, label
+        in navigation_options
+        if label == selected_label
     ),
-    modules[0],
+    "overview",
 )
 
+
 if (
-    selected_module.key
+    selected_key
     != st.session_state.active_module
 ):
 
     st.session_state.active_module = (
-        selected_module.key
+        selected_key
     )
 
-
-# ============================================================
-# MODULE DESCRIPTION
-# ============================================================
-
-st.caption(
-    selected_module.description
-)
+    st.rerun()
 
 
 # ============================================================
-# RENDER ACTIVE MODULE
+# RENDER ACTIVE PAGE
 # ============================================================
 
-try:
+if selected_key == "overview":
 
-    selected_module.render()
+    render_overview()
 
-except Exception as exc:
+else:
 
-    st.error(
-        "The selected registry module encountered an error."
+    selected_module = get_module(
+        selected_key
     )
 
-    with st.expander(
-        "Technical details"
-    ):
+    if selected_module is None:
 
-        st.exception(exc)
+        st.error(
+            "The requested registry module could not be found."
+        )
+
+    elif not selected_module.available:
+
+        st.error(
+            f"{selected_module.label} is currently unavailable."
+        )
+
+        if selected_module.error:
+
+            with st.expander(
+                "Technical details"
+            ):
+
+                st.code(
+                    selected_module.error
+                )
+
+    else:
+
+        st.caption(
+            selected_module.description
+        )
+
+        try:
+
+            render_module(
+                selected_key
+            )
+
+        except Exception as exc:
+
+            st.error(
+                "The selected registry module "
+                "encountered a runtime error."
+            )
+
+            with st.expander(
+                "Technical details"
+            ):
+
+                st.exception(exc)
 
 
 # ============================================================
@@ -372,17 +615,21 @@ except Exception as exc:
 
 st.divider()
 
-footer_col1, footer_col2 = st.columns(2)
+footer_col1, footer_col2 = st.columns(
+    2
+)
 
 with footer_col1:
 
     st.caption(
-        "South Sudan National Registry • Streamlit AI Studio"
+        "South Sudan National Registry • "
+        "Streamlit AI Studio"
     )
 
 with footer_col2:
 
     st.caption(
-        "Registry data should be treated as authoritative only "
-        "after verification and appropriate administrative approval."
+        "Registry data should be treated as authoritative "
+        "only after verification and appropriate "
+        "administrative approval."
     )
