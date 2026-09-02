@@ -3,173 +3,92 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from .service import (
-    get_election_summary,
-    list_voters,
-    record_vote,
-    register_voter,
-    update_voter,
-)
+from .service import delete_voter, get_election_summary, list_voters, record_vote, register_voter, update_voter
+
+STATUSES = ["Active", "Inactive", "Suspended"]
 
 
 def render() -> None:
     st.title("Elections")
-    st.caption(
-        "Voter registration, electoral records and polling administration."
-    )
-
+    st.caption("Voter registration, electoral records and polling administration.")
     summary = get_election_summary()
-
     c1, c2, c3 = st.columns(3)
-
     c1.metric("Voter Records", summary["total"])
     c2.metric("Active Voters", summary["active"])
     c3.metric("Recorded Votes", summary["voted"])
-
-    tabs = st.tabs(
-        [
-            "Voters",
-            "Register Voter",
-        ]
-    )
-
+    tabs = st.tabs(["Voters", "Register Voter"])
     with tabs[0]:
         _voters()
-
     with tabs[1]:
         _register()
 
 
 def _voters() -> None:
-    status = st.selectbox(
-        "Voter Status",
-        [
-            "",
-            "Active",
-            "Inactive",
-            "Suspended",
-        ],
-    )
+    c1, c2 = st.columns(2)
+    with c1:
+        status_filter = st.selectbox("Voter Status", [""] + STATUSES, key="voter_status_filter")
+    with c2:
+        constituency = st.text_input("Constituency", key="voter_constituency_filter")
 
-    constituency = st.text_input(
-        "Constituency"
-    )
-
-    voters = list_voters(
-        status=status,
-        constituency=constituency,
-    )
-
+    voters = list_voters(status=status_filter, constituency=constituency)
     if not voters:
         st.info("No voter records found.")
         return
 
-    data = pd.DataFrame(
-        [
-            {
-                "Voter ID": voter.voter_id_number or "",
-                "Citizen ID": voter.citizen_id,
-                "Status": voter.voter_status,
-                "Constituency": voter.constituency or "",
-                "Polling Station": voter.polling_station_name or "",
-                "Has Voted": voter.has_voted,
-                "Voted At": voter.voted_at,
-            }
-            for voter in voters
-        ]
-    )
+    st.dataframe(pd.DataFrame([
+        {"ID": voter.id, "Voter ID": voter.voter_id_number or "", "Citizen ID": voter.citizen_id,
+         "Status": voter.voter_status, "Constituency": voter.constituency or "",
+         "Polling Station": voter.polling_station_name or "", "Has Voted": voter.has_voted,
+         "Voted At": voter.voted_at}
+        for voter in voters
+    ]), use_container_width=True, hide_index=True)
 
-    st.dataframe(
-        data,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    selected = st.selectbox(
+    selected_id = st.selectbox(
         "Select voter",
         [voter.id for voter in voters],
-        format_func=lambda value: next(
-            (
-                voter.voter_id_number or voter.id
-                for voter in voters
-                if voter.id == value
-            ),
-            value,
-        ),
+        format_func=lambda value: next((v.voter_id_number or v.id for v in voters if v.id == value), value),
+        key="selected_voter",
     )
+    voter = next(v for v in voters if v.id == selected_id)
 
-    voter = next(
-        voter for voter in voters
-        if voter.id == selected
-    )
-
-    with st.expander("Manage Voter"):
-
+    with st.expander("Edit Voter", expanded=True):
         with st.form(f"edit_voter_{voter.id}"):
+            voter_id_number = st.text_input("Voter ID Number", value=voter.voter_id_number or "")
+            voter_status = st.selectbox("Status", STATUSES, index=STATUSES.index(voter.voter_status) if voter.voter_status in STATUSES else 0)
+            constituency_value = st.text_input("Constituency", value=voter.constituency or "")
+            polling_station_id = st.text_input("Polling Station ID", value=voter.polling_station_id or "")
+            polling_station = st.text_input("Polling Station", value=voter.polling_station_name or "")
+            save = st.form_submit_button("Save Changes", type="primary")
+        if save:
+            ok, message = update_voter(voter.id, {
+                "voter_id_number": voter_id_number.strip() or None,
+                "voter_status": voter_status,
+                "constituency": constituency_value.strip() or None,
+                "polling_station_id": polling_station_id.strip() or None,
+                "polling_station_name": polling_station.strip() or None,
+            })
+            if ok:
+                st.success(message)
+                st.rerun()
+            else:
+                st.error(message)
 
-            voter_status = st.selectbox(
-                "Status",
-                [
-                    "Active",
-                    "Inactive",
-                    "Suspended",
-                ],
-                index=(
-                    [
-                        "Active",
-                        "Inactive",
-                        "Suspended",
-                    ].index(voter.voter_status)
-                    if voter.voter_status in [
-                        "Active",
-                        "Inactive",
-                        "Suspended",
-                    ]
-                    else 0
-                ),
-            )
-
-            constituency_value = st.text_input(
-                "Constituency",
-                value=voter.constituency or "",
-            )
-
-            polling_station = st.text_input(
-                "Polling Station",
-                value=voter.polling_station_name or "",
-            )
-
-            submitted = st.form_submit_button(
-                "Save Changes",
-                type="primary",
-            )
-
-            if submitted:
-                ok, message = update_voter(
-                    voter.id,
-                    {
-                        "voter_status": voter_status,
-                        "constituency": constituency_value,
-                        "polling_station_name": polling_station,
-                    },
-                )
-
+    c1, c2 = st.columns(2)
+    with c1:
+        if voter.voter_status == "Active" and not voter.has_voted:
+            if st.button("Record Vote", key=f"vote_{voter.id}"):
+                ok, message = record_vote(voter.id)
                 if ok:
                     st.success(message)
                     st.rerun()
                 else:
                     st.error(message)
-
-        if (
-            voter.voter_status == "Active"
-            and not voter.has_voted
-        ):
-            if st.button(
-                "Record Vote",
-                key=f"vote_{voter.id}",
-            ):
-                ok, message = record_vote(voter.id)
-
+    with c2:
+        with st.popover("Delete Voter"):
+            st.warning("This permanently removes the voter record.")
+            confirm = st.checkbox("Confirm deletion", key=f"confirm_delete_voter_{voter.id}")
+            if st.button("Permanently Delete", disabled=not confirm, key=f"delete_voter_{voter.id}"):
+                ok, message = delete_voter(voter.id)
                 if ok:
                     st.success(message)
                     st.rerun()
@@ -179,51 +98,28 @@ def _voters() -> None:
 
 def _register() -> None:
     st.subheader("Register Voter")
-
     with st.form("register_voter"):
-
-        citizen_id = st.text_input(
-            "Citizen ID *"
-        )
-
-        voter_id_number = st.text_input(
-            "Voter ID Number"
-        )
-
-        constituency = st.text_input(
-            "Constituency"
-        )
-
-        polling_station_id = st.text_input(
-            "Polling Station ID"
-        )
-
-        polling_station_name = st.text_input(
-            "Polling Station Name"
-        )
-
-        submitted = st.form_submit_button(
-            "Register Voter",
-            type="primary",
-        )
-
-        if submitted:
-            if not citizen_id.strip():
-                st.error("Citizen ID is required.")
-                return
-
-            ok, message, _ = register_voter(
-                {
-                    "citizen_id": citizen_id,
-                    "voter_id_number": voter_id_number,
-                    "constituency": constituency,
-                    "polling_station_id": polling_station_id,
-                    "polling_station_name": polling_station_name,
-                }
-            )
-
-            if ok:
-                st.success(message)
-                st.rerun()
-            else:
-                st.error(message)
+        citizen_id = st.text_input("Citizen ID *")
+        voter_id_number = st.text_input("Voter ID Number")
+        voter_status = st.selectbox("Status", STATUSES)
+        constituency = st.text_input("Constituency")
+        polling_station_id = st.text_input("Polling Station ID")
+        polling_station_name = st.text_input("Polling Station Name")
+        submitted = st.form_submit_button("Register Voter", type="primary")
+    if submitted:
+        if not citizen_id.strip():
+            st.error("Citizen ID is required.")
+            return
+        ok, message, _ = register_voter({
+            "citizen_id": citizen_id.strip(),
+            "voter_id_number": voter_id_number.strip() or None,
+            "voter_status": voter_status,
+            "constituency": constituency.strip() or None,
+            "polling_station_id": polling_station_id.strip() or None,
+            "polling_station_name": polling_station_name.strip() or None,
+        })
+        if ok:
+            st.success(message)
+            st.rerun()
+        else:
+            st.error(message)
