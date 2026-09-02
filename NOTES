@@ -453,3 +453,54 @@ southsudannationalregistry/
 │
 └── .streamlit/
     └── secrets.toml
+
+
+
+
+southsudannationalregistry/
+│
+├── streamlit_app.py
+│
+├── database/
+│   ├── __init__.py
+│   ├── database.py
+│   ├── models.py
+│   └── seed.py
+│
+├── modules/
+│   ├── registry.py
+│   │
+│   ├── population/
+│   │   ├── __init__.py
+│   │   ├── views.py
+│   │   ├── service.py
+│   │   └── repository.py
+│   │
+│   ├── civil_registration/
+│   │   ├── __init__.py
+│   │   ├── views.py
+│   │   ├── service.py
+│   │   └── repository.py
+│   │
+│   ├── identity/
+│   │   ├── __init__.py
+│   │   ├── views.py
+│   │   ├── service.py
+│   │   └── repository.py
+│   │
+│   └── elections/
+│       ├── __init__.py
+│       ├── views.py
+│       ├── service.py
+│       └── repository.py
+│
+├── services/
+│   └── ...
+│
+├── assets/
+│   └── ...
+│
+├── data/
+│   └── registry.db          # local only
+│
+└── requirements.txt
