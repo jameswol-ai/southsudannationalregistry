@@ -409,3 +409,47 @@ modules/elections/__init__.py
 modules/elections/views.py
 modules/elections/service.py
 modules/elections/repository.py
+
+
+southsudannationalregistry/
+│
+├── streamlit_app.py
+├── models.py
+├── requirements.txt
+│
+├── database/
+│   ├── __init__.py
+│   └── database.py
+│
+├── modules/
+│   ├── registry.py
+│   │
+│   ├── population/
+│   │   ├── __init__.py
+│   │   ├── views.py
+│   │   ├── service.py
+│   │   └── repository.py
+│   │
+│   ├── civil_registration/
+│   │   ├── __init__.py
+│   │   ├── views.py
+│   │   ├── service.py
+│   │   └── repository.py
+│   │
+│   ├── identity/
+│   │   ├── __init__.py
+│   │   ├── views.py
+│   │   ├── service.py
+│   │   └── repository.py
+│   │
+│   └── elections/
+│       ├── __init__.py
+│       ├── views.py
+│       ├── service.py
+│       └── repository.py
+│
+├── assets/
+│   └── south_sudan_emblem.png
+│
+└── .streamlit/
+    └── secrets.toml
