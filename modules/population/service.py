@@ -1,185 +1,451 @@
+"""
+Population Service.
+
+Business logic for population registration and statistics.
+"""
+
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from database.database import SessionLocal
-from models import Citizen, Household
+from database.models import AuditLog, Citizen, Household
 
-
-def _session():
-    return SessionLocal()
+from .repository import PopulationRepository
 
 
-def _generate_id(prefix: str) -> str:
-    return f"{prefix}-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+class PopulationValidationError(ValueError):
+    """Raised when population data fails validation."""
 
 
-def get_population_summary() -> dict[str, int]:
-    db = _session()
-    try:
-        total = db.scalar(select(func.count(Citizen.id))) or 0
-        male = db.scalar(select(func.count(Citizen.id)).where(Citizen.gender == "Male")) or 0
-        female = db.scalar(select(func.count(Citizen.id)).where(Citizen.gender == "Female")) or 0
-        verified = db.scalar(select(func.count(Citizen.id)).where(Citizen.verification_status == "Verified")) or 0
-        pending = db.scalar(select(func.count(Citizen.id)).where(Citizen.verification_status == "Pending Review")) or 0
-        households = db.scalar(select(func.count(Household.id))) or 0
-        return {"total": total, "male": male, "female": female, "verified": verified, "pending": pending, "households": households}
-    finally:
-        db.close()
+class PopulationService:
 
+    def __init__(
+        self,
+        db: Session,
+        username: str = "system",
+    ):
 
-def search_citizens(search: str = "", state: str = "", county: str = "", status: str = "", limit: int = 200) -> list[Citizen]:
-    db = _session()
-    try:
-        stmt = select(Citizen).order_by(Citizen.created_at.desc()).limit(limit)
-        if search.strip():
-            term = f"%{search.strip()}%"
-            stmt = stmt.where(or_(Citizen.full_name.ilike(term), Citizen.national_id.ilike(term), Citizen.passport_number.ilike(term), Citizen.phone_number.ilike(term), Citizen.email_address.ilike(term)))
-        if state:
-            stmt = stmt.where(Citizen.state_or_region == state)
-        if county:
-            stmt = stmt.where(Citizen.county_or_payam == county)
-        if status:
-            stmt = stmt.where(Citizen.verification_status == status)
-        return list(db.scalars(stmt).all())
-    finally:
-        db.close()
+        self.db = db
+        self.username = username
+        self.repository = PopulationRepository(db)
 
+    # ========================================================
+    # VALIDATION
+    # ========================================================
 
-def get_citizen(citizen_id: str) -> Optional[Citizen]:
-    db = _session()
-    try:
-        return db.get(Citizen, citizen_id)
-    finally:
-        db.close()
+    @staticmethod
+    def calculate_age(
+        date_of_birth: date | None,
+    ) -> int:
 
+        if not date_of_birth:
+            return 0
 
-def create_citizen(data: dict[str, Any]) -> tuple[bool, str, Optional[str]]:
-    db = _session()
-    try:
-        citizen_id = data.get("id") or _generate_id("CIT")
-        citizen = Citizen(
-            id=citizen_id, national_id=data.get("national_id") or None, passport_number=data.get("passport_number") or None,
-            id_document_type=data.get("id_document_type") or None, full_name=data["full_name"].strip(), date_of_birth=data.get("date_of_birth"),
-            age=int(data.get("age") or 0), gender=data.get("gender") or "Other", marital_status=data.get("marital_status") or "Single",
-            nationality=data.get("nationality") or "South Sudanese", phone_number=data.get("phone_number") or None, email_address=data.get("email_address") or None,
-            emergency_contact_name=data.get("emergency_contact_name") or None, emergency_contact_phone=data.get("emergency_contact_phone") or None,
-            tribe=data.get("tribe") or "", sub_tribe_or_clan=data.get("sub_tribe_or_clan") or None, native_language=data.get("native_language") or "",
-            state_or_region=data.get("state_or_region") or "", county_or_payam=data.get("county_or_payam") or "", sub_county_or_boma=data.get("sub_county_or_boma") or "",
-            boma=data.get("boma") or None, community=data.get("community") or "", residential_address=data.get("residential_address") or None,
-            duration_of_stay_years=float(data.get("duration_of_stay_years") or 0), household_id=data.get("household_id") or None,
-            household_role=data.get("household_role") or "Head of Household", is_household_head=bool(data.get("is_household_head", False)),
-            education_level=data.get("education_level") or "None / Informal", is_literate=bool(data.get("is_literate", False)),
-            employment_status=data.get("employment_status") or "Unemployed / Seeking Work", primary_occupation=data.get("primary_occupation") or None,
-            employer_or_business_name=data.get("employer_or_business_name") or None, industry_sector=data.get("industry_sector") or None,
-            monthly_income_range=data.get("monthly_income_range") or None, has_special_needs_or_disability=bool(data.get("has_special_needs_or_disability", False)),
-            disability_type=data.get("disability_type") or None, mother_alive=data.get("mother_alive"), father_alive=data.get("father_alive"),
-            voter_id_number=data.get("voter_id_number") or None, voter_status=data.get("voter_status") or None, constituency=data.get("constituency") or None,
-            polling_station_id=data.get("polling_station_id") or None, polling_station_name=data.get("polling_station_name") or None,
-            has_voted=bool(data.get("has_voted", False)), voted_at=data.get("voted_at"), enumerator_name=data.get("enumerator_name") or "",
-            enumerator_badge_id=data.get("enumerator_badge_id") or "", enumeration_date=data.get("enumeration_date"),
-            verification_status=data.get("verification_status") or "Pending Review", verification_notes=data.get("verification_notes") or None, notes=data.get("notes") or None,
+        today = date.today()
+
+        age = (
+            today.year
+            - date_of_birth.year
+            - (
+                (today.month, today.day)
+                < (
+                    date_of_birth.month,
+                    date_of_birth.day,
+                )
+            )
         )
-        db.add(citizen); db.commit()
-        return True, "Citizen registered successfully.", citizen_id
-    except IntegrityError:
-        db.rollback(); return False, "A citizen with the supplied unique identification information already exists.", None
-    except Exception as exc:
-        db.rollback(); return False, f"Unable to register citizen: {exc}", None
-    finally:
-        db.close()
 
+        return max(0, age)
 
-def update_citizen(citizen_id: str, data: dict[str, Any]) -> tuple[bool, str]:
-    db = _session()
-    try:
-        citizen = db.get(Citizen, citizen_id)
-        if citizen is None: return False, "Citizen not found."
-        for key, value in data.items():
-            if key not in {"id", "created_at", "updated_at"} and hasattr(citizen, key): setattr(citizen, key, value)
-        citizen.updated_at = datetime.utcnow(); db.commit()
-        return True, "Citizen updated successfully."
-    except IntegrityError:
-        db.rollback(); return False, "The updated identification information conflicts with another record."
-    except Exception as exc:
-        db.rollback(); return False, f"Unable to update citizen: {exc}"
-    finally:
-        db.close()
+    def validate_citizen(
+        self,
+        values: dict[str, Any],
+        citizen_id: str | None = None,
+    ) -> None:
 
+        full_name = str(
+            values.get("full_name") or ""
+        ).strip()
 
-def delete_citizen(citizen_id: str) -> tuple[bool, str]:
-    db = _session()
-    try:
-        citizen = db.get(Citizen, citizen_id)
-        if citizen is None: return False, "Citizen not found."
-        db.delete(citizen); db.commit(); return True, "Citizen deleted successfully."
-    except Exception as exc:
-        db.rollback(); return False, f"Unable to delete citizen: {exc}"
-    finally:
-        db.close()
+        if not full_name:
+            raise PopulationValidationError(
+                "Full name is required."
+            )
 
+        national_id = values.get("national_id")
 
-def list_households(limit: int = 200) -> list[Household]:
-    db = _session()
-    try:
-        return list(db.scalars(select(Household).order_by(Household.created_at.desc()).limit(limit)).all())
-    finally:
-        db.close()
+        if national_id:
+            national_id = str(national_id).strip()
 
+            existing = (
+                self.repository.get_by_national_id(
+                    national_id
+                )
+            )
 
-def get_household(household_id: str) -> Optional[Household]:
-    db = _session()
-    try:
-        return db.get(Household, household_id)
-    finally:
-        db.close()
+            if existing and existing.id != citizen_id:
+                raise PopulationValidationError(
+                    "National ID already exists."
+                )
 
+        voter_id = values.get("voter_id_number")
 
-def create_household(household_number: str, state_or_region: str, county_or_payam: str = "", sub_county_or_boma: str = "", boma: str = "", community: str = "", residential_address: str = "", head_citizen_id: Optional[str] = None) -> tuple[bool, str, Optional[str]]:
-    db = _session()
-    try:
-        household_id = _generate_id("HH")
-        household = Household(id=household_id, household_number=household_number.strip(), head_citizen_id=head_citizen_id or None, state_or_region=state_or_region.strip(), county_or_payam=county_or_payam.strip() or None, sub_county_or_boma=sub_county_or_boma.strip() or None, boma=boma.strip() or None, community=community.strip() or None, residential_address=residential_address.strip() or None)
-        db.add(household); db.commit(); return True, "Household created successfully.", household_id
-    except IntegrityError:
-        db.rollback(); return False, "Household number already exists.", None
-    except Exception as exc:
-        db.rollback(); return False, f"Unable to create household: {exc}", None
-    finally:
-        db.close()
+        if voter_id:
+            voter_id = str(voter_id).strip()
 
+            existing = (
+                self.repository.get_by_voter_id(
+                    voter_id
+                )
+            )
 
-def update_household(household_id: str, data: dict[str, Any]) -> tuple[bool, str]:
-    db = _session()
-    try:
-        household = db.get(Household, household_id)
-        if household is None: return False, "Household not found."
-        new_number = data.get("household_number")
-        if new_number and new_number.strip() != household.household_number:
-            duplicate = db.scalar(select(Household).where(Household.household_number == new_number.strip(), Household.id != household_id))
-            if duplicate: return False, "Household number already exists."
-        for key, value in data.items():
-            if key not in {"id", "created_at", "updated_at"} and hasattr(household, key): setattr(household, key, value)
-        household.updated_at = datetime.utcnow(); db.commit(); return True, "Household updated successfully."
-    except Exception as exc:
-        db.rollback(); return False, f"Unable to update household: {exc}"
-    finally:
-        db.close()
+            if existing and existing.id != citizen_id:
+                raise PopulationValidationError(
+                    "Voter ID already exists."
+                )
 
+        dob = values.get("date_of_birth")
 
-def delete_household(household_id: str) -> tuple[bool, str]:
-    db = _session()
-    try:
-        household = db.get(Household, household_id)
-        if household is None: return False, "Household not found."
-        members = db.scalar(select(func.count(Citizen.id)).where(Citizen.household_id == household_id)) or 0
-        if members: return False, "Cannot delete a household that contains registered citizens."
-        db.delete(household); db.commit(); return True, "Household deleted successfully."
-    except Exception as exc:
-        db.rollback(); return False, f"Unable to delete household: {exc}"
-    finally:
-        db.close()
+        if dob and dob > date.today():
+            raise PopulationValidationError(
+                "Date of birth cannot be in the future."
+            )
+
+        duration = values.get(
+            "duration_of_stay_years",
+            0.0,
+        )
+
+        try:
+            duration = float(duration)
+        except (TypeError, ValueError):
+            raise PopulationValidationError(
+                "Duration of stay must be numeric."
+            )
+
+        if duration < 0:
+            raise PopulationValidationError(
+                "Duration of stay cannot be negative."
+            )
+
+    # ========================================================
+    # AUDIT
+    # ========================================================
+
+    def _audit(
+        self,
+        action: str,
+        entity_type: str,
+        entity_id: str,
+        details: str,
+    ) -> None:
+
+        self.db.add(
+            AuditLog(
+                action=action,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                username=self.username,
+                details=details,
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    # ========================================================
+    # CREATE
+    # ========================================================
+
+    def create_citizen(
+        self,
+        values: dict[str, Any],
+    ) -> Citizen:
+
+        self.validate_citizen(values)
+
+        citizen = Citizen(
+            id=str(uuid.uuid4()),
+            full_name=str(
+                values.get("full_name") or ""
+            ).strip(),
+        )
+
+        fields = {
+            key: value
+            for key, value in values.items()
+            if key != "id"
+            and hasattr(Citizen, key)
+        }
+
+        for field, value in fields.items():
+            setattr(citizen, field, value)
+
+        citizen.age = self.calculate_age(
+            citizen.date_of_birth
+        )
+
+        citizen.created_at = datetime.utcnow()
+        citizen.updated_at = datetime.utcnow()
+
+        try:
+            self.repository.add_citizen(citizen)
+
+            self._audit(
+                "CREATE",
+                "Citizen",
+                citizen.id,
+                f"Created citizen record for {citizen.full_name}.",
+            )
+
+            self.db.commit()
+            self.db.refresh(citizen)
+
+            return citizen
+
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            raise PopulationValidationError(
+                "Citizen could not be saved because "
+                "a unique database value already exists."
+            ) from exc
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+    # ========================================================
+    # UPDATE
+    # ========================================================
+
+    def update_citizen(
+        self,
+        citizen_id: str,
+        values: dict[str, Any],
+    ) -> Citizen:
+
+        citizen = self.repository.get_citizen(
+            citizen_id
+        )
+
+        if citizen is None:
+            raise PopulationValidationError(
+                "Citizen record was not found."
+            )
+
+        self.validate_citizen(
+            values,
+            citizen_id=citizen_id,
+        )
+
+        clean_values = dict(values)
+
+        if "date_of_birth" in clean_values:
+            clean_values["age"] = self.calculate_age(
+                clean_values["date_of_birth"]
+            )
+
+        try:
+            citizen = self.repository.update_citizen(
+                citizen,
+                clean_values,
+            )
+
+            self._audit(
+                "UPDATE",
+                "Citizen",
+                citizen.id,
+                f"Updated citizen record for {citizen.full_name}.",
+            )
+
+            self.db.commit()
+            self.db.refresh(citizen)
+
+            return citizen
+
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            raise PopulationValidationError(
+                "Citizen could not be updated because "
+                "a unique database value already exists."
+            ) from exc
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+    # ========================================================
+    # ARCHIVE
+    # ========================================================
+
+    def archive_citizen(
+        self,
+        citizen_id: str,
+    ) -> Citizen:
+
+        citizen = self.repository.get_citizen(
+            citizen_id
+        )
+
+        if citizen is None:
+            raise PopulationValidationError(
+                "Citizen record was not found."
+            )
+
+        try:
+            citizen.verification_status = "Archived"
+            citizen.updated_at = datetime.utcnow()
+
+            self._audit(
+                "ARCHIVE",
+                "Citizen",
+                citizen.id,
+                f"Archived citizen record for {citizen.full_name}.",
+            )
+
+            self.db.commit()
+            self.db.refresh(citizen)
+
+            return citizen
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+    # ========================================================
+    # READ
+    # ========================================================
+
+    def get_citizen(
+        self,
+        citizen_id: str,
+    ) -> Citizen | None:
+
+        return self.repository.get_citizen(
+            citizen_id
+        )
+
+    def search_citizens(
+        self,
+        search: str | None = None,
+        state: str | None = None,
+        county: str | None = None,
+        gender: str | None = None,
+        verification_status: str | None = None,
+        limit: int = 500,
+    ) -> list[Citizen]:
+
+        return self.repository.list_citizens(
+            search=search,
+            state=state,
+            county=county,
+            gender=gender,
+            verification_status=verification_status,
+            limit=limit,
+        )
+
+    # ========================================================
+    # STATISTICS
+    # ========================================================
+
+    def dashboard_statistics(self) -> dict[str, Any]:
+
+        return {
+            "total_citizens":
+                self.repository.count_citizens(),
+            "total_households":
+                self.repository.count_households(),
+            "by_gender":
+                self.repository.count_by_gender(),
+            "by_state":
+                self.repository.count_by_state(),
+            "by_verification_status":
+                self.repository.count_by_verification_status(),
+        }
+
+    # ========================================================
+    # HOUSEHOLDS
+    # ========================================================
+
+    def create_household(
+        self,
+        values: dict[str, Any],
+    ) -> Household:
+
+        number = str(
+            values.get("household_number") or ""
+        ).strip()
+
+        if not number:
+            raise PopulationValidationError(
+                "Household number is required."
+            )
+
+        existing = (
+            self.repository.get_household_by_number(
+                number
+            )
+        )
+
+        if existing:
+            raise PopulationValidationError(
+                "Household number already exists."
+            )
+
+        household = Household(
+            id=str(uuid.uuid4()),
+            household_number=number,
+            state_or_region=str(
+                values.get("state_or_region") or ""
+            ).strip(),
+            county_or_payam=values.get(
+                "county_or_payam"
+            ),
+            sub_county_or_boma=values.get(
+                "sub_county_or_boma"
+            ),
+            boma=values.get("boma"),
+            community=values.get("community"),
+            residential_address=values.get(
+                "residential_address"
+            ),
+            head_citizen_id=values.get(
+                "head_citizen_id"
+            ),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+
+        try:
+            self.repository.add_household(
+                household
+            )
+
+            self._audit(
+                "CREATE",
+                "Household",
+                household.id,
+                f"Created household {number}.",
+            )
+
+            self.db.commit()
+            self.db.refresh(household)
+
+            return household
+
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            raise PopulationValidationError(
+                "Household could not be saved because "
+                "the household number already exists."
+            ) from exc
+
+        except Exception:
+            self.db.rollback()
+            raise
