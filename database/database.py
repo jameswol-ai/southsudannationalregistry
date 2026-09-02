@@ -110,7 +110,7 @@ def init_db() -> None:
 
     try:
 
-        from models import Base as ModelsBase
+        from database.models import Base as ModelsBase
 
         ModelsBase.metadata.create_all(
             bind=engine
