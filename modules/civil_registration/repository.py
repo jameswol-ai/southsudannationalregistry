@@ -1,57 +1,92 @@
-"""
-Civil Registration repository.
-"""
-
 from __future__ import annotations
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from database.models import (
+    CivilEvent,
+    Citizen,
+)
 
 
 class CivilRegistrationRepository:
+
     def __init__(
         self,
-        session,
-        CivilEvent,
-        Document=None,
+        db: Session,
     ):
-        self.session = session
-        self.CivilEvent = CivilEvent
-        self.Document = Document
+        self.db = db
 
-    def list_events(self, limit=500):
+    def get_event(
+        self,
+        event_id: str,
+    ) -> CivilEvent | None:
+
         return (
-            self.session.query(self.CivilEvent)
+            self.db.query(CivilEvent)
+            .filter(
+                CivilEvent.id == event_id
+            )
+            .first()
+        )
+
+    def list_events(
+        self,
+        event_type: str | None = None,
+        citizen_id: str | None = None,
+        limit: int = 500,
+    ) -> list[CivilEvent]:
+
+        query = self.db.query(
+            CivilEvent
+        )
+
+        if event_type:
+            query = query.filter(
+                CivilEvent.event_type
+                == event_type
+            )
+
+        if citizen_id:
+            query = query.filter(
+                CivilEvent.citizen_id
+                == citizen_id
+            )
+
+        return (
+            query
             .order_by(
-                self.CivilEvent.id.desc()
+                CivilEvent.event_date.desc()
             )
             .limit(limit)
             .all()
         )
 
-    def get_event(self, event_id):
-        return self.session.get(
-            self.CivilEvent,
-            event_id,
+    def count_events(
+        self,
+        event_type: str | None = None,
+    ) -> int:
+
+        query = self.db.query(
+            func.count(CivilEvent.id)
         )
 
-    def add_event(self, event):
-        self.session.add(event)
-        self.session.flush()
+        if event_type:
+            query = query.filter(
+                CivilEvent.event_type
+                == event_type
+            )
+
+        return int(
+            query.scalar() or 0
+        )
+
+    def add_event(
+        self,
+        event: CivilEvent,
+    ) -> CivilEvent:
+
+        self.db.add(event)
+        self.db.flush()
+
         return event
-
-    def save(self):
-        self.session.commit()
-
-    def rollback(self):
-        self.session.rollback()
-
-    def list_documents(self, limit=500):
-        if self.Document is None:
-            return []
-
-        return (
-            self.session.query(self.Document)
-            .order_by(
-                self.Document.id.desc()
-            )
-            .limit(limit)
-            .all()
-        )
