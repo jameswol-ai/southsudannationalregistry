@@ -1,88 +1,78 @@
-"""
-Identity repository.
-"""
-
 from __future__ import annotations
 
-from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
+from database.models import (
+    Citizen,
+    Document,
+)
 
 
 class IdentityRepository:
+
     def __init__(
         self,
-        session,
-        Citizen,
-        Document=None,
+        db: Session,
     ):
-        self.session = session
-        self.Citizen = Citizen
-        self.Document = Document
+        self.db = db
 
-    def list_citizens(self, limit=500):
+    def get_citizen(
+        self,
+        citizen_id: str,
+    ) -> Citizen | None:
+
         return (
-            self.session.query(self.Citizen)
+            self.db.query(Citizen)
+            .filter(
+                Citizen.id == citizen_id
+            )
+            .first()
+        )
+
+    def get_document(
+        self,
+        document_id: str,
+    ) -> Document | None:
+
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.id == document_id
+            )
+            .first()
+        )
+
+    def list_documents(
+        self,
+        citizen_id: str | None = None,
+        limit: int = 500,
+    ) -> list[Document]:
+
+        query = self.db.query(
+            Document
+        )
+
+        if citizen_id:
+            query = query.filter(
+                Document.citizen_id
+                == citizen_id
+            )
+
+        return (
+            query
             .order_by(
-                self.Citizen.id.desc()
+                Document.created_at.desc()
             )
             .limit(limit)
             .all()
         )
 
-    def search_citizens(self, value, limit=100):
-        query = self.session.query(self.Citizen)
+    def add_document(
+        self,
+        document: Document,
+    ) -> Document:
 
-        filters = []
+        self.db.add(document)
+        self.db.flush()
 
-        for field in (
-            "national_id",
-            "first_name",
-            "last_name",
-            "phone",
-        ):
-            if hasattr(self.Citizen, field):
-                filters.append(
-                    getattr(self.Citizen, field).ilike(
-                        f"%{value}%"
-                    )
-                )
-
-        if filters:
-            query = query.filter(or_(*filters))
-
-        return (
-            query.order_by(
-                self.Citizen.id.desc()
-            )
-            .limit(limit)
-            .all()
-        )
-
-    def get_citizen(self, citizen_id):
-        return self.session.get(
-            self.Citizen,
-            citizen_id,
-        )
-
-    def list_documents(self, limit=500):
-        if self.Document is None:
-            return []
-
-        return (
-            self.session.query(self.Document)
-            .order_by(
-                self.Document.id.desc()
-            )
-            .limit(limit)
-            .all()
-        )
-
-    def add_document(self, document):
-        self.session.add(document)
-        self.session.flush()
         return document
-
-    def save(self):
-        self.session.commit()
-
-    def rollback(self):
-        self.session.rollback()
