@@ -366,3 +366,46 @@ Population
 
 Reports
  └── Reads from all modules
+
+
+modules/
+├── registry.py
+├── population/
+│   ├── __init__.py
+│   ├── views.py
+│   ├── service.py
+│   └── repository.py
+├── civil_registration/
+│   ├── __init__.py
+│   ├── views.py
+│   ├── service.py
+│   └── repository.py
+├── identity/
+│   ├── __init__.py
+│   ├── views.py
+│   ├── service.py
+│   └── repository.py
+└── elections/
+    ├── __init__.py
+    ├── views.py
+    ├── service.py
+    └── repository.py
+
+
+modules/registry.py
+modules/population/__init__.py
+modules/population/views.py
+modules/population/service.py
+modules/population/repository.py
+modules/civil_registration/__init__.py
+modules/civil_registration/views.py
+modules/civil_registration/service.py
+modules/civil_registration/repository.py
+modules/identity/__init__.py
+modules/identity/views.py
+modules/identity/service.py
+modules/identity/repository.py
+modules/elections/__init__.py
+modules/elections/views.py
+modules/elections/service.py
+modules/elections/repository.py
