@@ -19,10 +19,10 @@ Architecture:
           +---- Administration
           |
           v
-    Module UI
+    Module Views
           |
           v
-    Module Service
+    Module Services
           |
           v
     SQLAlchemy Models
@@ -30,8 +30,16 @@ Architecture:
           v
     PostgreSQL / SQLite
 
-The registry is responsible for module discovery and rendering only.
-Business/database logic belongs inside each module's service.py.
+The registry is responsible for module discovery and rendering.
+
+Business and database logic belongs inside each module's
+service.py / repository.py.
+
+Important:
+    Modules are loaded lazily.
+
+A broken optional module therefore does not prevent the main
+application or other Registry modules from starting.
 """
 
 from __future__ import annotations
@@ -55,39 +63,35 @@ Loader = Callable[[], Renderer]
 @dataclass
 class RegistryModule:
     """
-    Represents a Registry application module.
+    Represents one application module.
+
+    The renderer is intentionally optional because modules are
+    loaded lazily.
     """
 
     key: str
     label: str
     description: str
 
-    # Renderer loaded from the module's __init__.py
+    loader: Loader | None = None
+
     render: Renderer | None = None
 
-    # Runtime availability
-    available: bool = True
+    available: bool = False
 
-    # Error captured during module loading
+    loaded: bool = False
+
     error: str | None = None
 
 
 # ============================================================
 # MODULE LOADERS
 # ============================================================
-#
-# IMPORTANT:
-#
-# These functions intentionally import modules lazily.
-#
-# registry.py can therefore be imported even if one individual
-# module has a dependency or coding error.
-#
-# The module is loaded only when the registry initializes it.
-# ============================================================
-
 
 def _load_population() -> Renderer:
+    """
+    Load the Population module renderer.
+    """
 
     from modules.population import render
 
@@ -95,6 +99,9 @@ def _load_population() -> Renderer:
 
 
 def _load_civil_registration() -> Renderer:
+    """
+    Load the Civil Registration module renderer.
+    """
 
     from modules.civil_registration import render
 
@@ -102,6 +109,9 @@ def _load_civil_registration() -> Renderer:
 
 
 def _load_identity() -> Renderer:
+    """
+    Load the Identity module renderer.
+    """
 
     from modules.identity import render
 
@@ -109,6 +119,9 @@ def _load_identity() -> Renderer:
 
 
 def _load_elections() -> Renderer:
+    """
+    Load the Elections module renderer.
+    """
 
     from modules.elections import render
 
@@ -116,6 +129,9 @@ def _load_elections() -> Renderer:
 
 
 def _load_reports() -> Renderer:
+    """
+    Load the Reports module renderer.
+    """
 
     from modules.reports import render
 
@@ -123,6 +139,9 @@ def _load_reports() -> Renderer:
 
 
 def _load_administration() -> Renderer:
+    """
+    Load the Administration module renderer.
+    """
 
     from modules.administration import render
 
@@ -141,8 +160,8 @@ _MODULE_DEFINITIONS: list[
         "population",
         "Population Registry",
         (
-            "Manage national population records, citizens, "
-            "households and demographic information."
+            "Manage population records, demographic information, "
+            "population statistics and population-related services."
         ),
         _load_population,
     ),
@@ -151,8 +170,8 @@ _MODULE_DEFINITIONS: list[
         "civil_registration",
         "Civil Registration",
         (
-            "Register births, deaths, marriages, divorces "
-            "and other civil events."
+            "Register and manage births, deaths, marriages, "
+            "divorces and other civil events."
         ),
         _load_civil_registration,
     ),
@@ -161,8 +180,8 @@ _MODULE_DEFINITIONS: list[
         "identity",
         "Identity Management",
         (
-            "Manage national identity records, identity "
-            "documents and identity services."
+            "Manage national identity records, identity documents, "
+            "identity verification and related services."
         ),
         _load_identity,
     ),
@@ -171,8 +190,8 @@ _MODULE_DEFINITIONS: list[
         "elections",
         "Elections",
         (
-            "Manage voter registration, constituencies, "
-            "polling stations and electoral records."
+            "Manage voter registration, voter records, "
+            "constituencies and polling stations."
         ),
         _load_elections,
     ),
@@ -181,8 +200,8 @@ _MODULE_DEFINITIONS: list[
         "reports",
         "Reports & Analytics",
         (
-            "Generate operational, demographic, civil "
-            "registration and election reports."
+            "Generate population, civil registration, identity, "
+            "election and operational reports."
         ),
         _load_reports,
     ),
@@ -207,53 +226,31 @@ MODULES: dict[str, RegistryModule] = {}
 
 
 # ============================================================
-# MODULE REGISTRATION
+# REGISTER MODULE DEFINITIONS
 # ============================================================
 
-def _register(
+def _register_definition(
     key: str,
     label: str,
     description: str,
     loader: Loader,
 ) -> RegistryModule:
     """
-    Load and register a single module.
+    Register a module definition without importing the module.
 
-    A module failure is isolated so that the remaining Registry
-    modules can continue to operate.
+    This is the core of the lazy-loading architecture.
     """
 
-    try:
-
-        renderer = loader()
-
-        if not callable(renderer):
-
-            raise TypeError(
-                f"Module '{key}' does not expose a callable "
-                f"render function."
-            )
-
-        module = RegistryModule(
-            key=key,
-            label=label,
-            description=description,
-            render=renderer,
-            available=True,
-        )
-
-    except Exception as exc:
-
-        module = RegistryModule(
-            key=key,
-            label=label,
-            description=description,
-            render=None,
-            available=False,
-            error=(
-                f"{type(exc).__name__}: {exc}"
-            ),
-        )
+    module = RegistryModule(
+        key=key,
+        label=label,
+        description=description,
+        loader=loader,
+        render=None,
+        available=False,
+        loaded=False,
+        error=None,
+    )
 
     MODULES[key] = module
 
@@ -266,9 +263,11 @@ def _register(
 
 def initialize_registry() -> dict[str, RegistryModule]:
     """
-    Initialize all Registry modules.
+    Initialize the registry definitions.
 
-    Safe to call multiple times.
+    This function does NOT import application modules.
+
+    It is safe to call repeatedly.
     """
 
     MODULES.clear()
@@ -280,7 +279,7 @@ def initialize_registry() -> dict[str, RegistryModule]:
         loader,
     ) in _MODULE_DEFINITIONS:
 
-        _register(
+        _register_definition(
             key=key,
             label=label,
             description=description,
@@ -291,73 +290,167 @@ def initialize_registry() -> dict[str, RegistryModule]:
 
 
 # ============================================================
-# INITIALIZE ON IMPORT
+# LAZY MODULE LOADING
 # ============================================================
 
-initialize_registry()
+def _load_module(
+    module: RegistryModule,
+) -> RegistryModule:
+    """
+    Load a module only when it is actually requested.
+
+    Any import or initialization error is captured inside the
+    module record instead of crashing the entire application.
+    """
+
+    if module.loaded:
+        return module
+
+    if module.loader is None:
+
+        module.loaded = True
+        module.available = False
+        module.error = (
+            "No module loader has been registered."
+        )
+
+        return module
+
+    try:
+
+        renderer = module.loader()
+
+        if not callable(renderer):
+
+            raise TypeError(
+                f"Module '{module.key}' does not expose "
+                "a callable render() function."
+            )
+
+        module.render = renderer
+        module.available = True
+        module.loaded = True
+        module.error = None
+
+    except Exception as exc:
+
+        module.render = None
+        module.available = False
+        module.loaded = True
+
+        module.error = (
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    return module
 
 
 # ============================================================
-# PUBLIC API
+# GET MODULE
 # ============================================================
 
 def get_module(
     key: str,
 ) -> RegistryModule | None:
     """
-    Return a module by its registry key.
+    Return a module by key.
+
+    The module is loaded lazily when requested.
     """
 
-    return MODULES.get(key)
+    module = MODULES.get(key)
 
+    if module is None:
+        return None
+
+    return _load_module(module)
+
+
+# ============================================================
+# GET AVAILABLE MODULES
+# ============================================================
 
 def get_available_modules() -> list[RegistryModule]:
     """
-    Return all modules that loaded successfully.
+    Load and return all modules that are available.
+
+    This intentionally evaluates every module because the caller
+    is explicitly asking for availability information.
     """
 
-    return [
-        module
-        for module in MODULES.values()
-        if module.available
-    ]
+    available: list[RegistryModule] = []
 
+    for module in MODULES.values():
+
+        loaded = _load_module(module)
+
+        if loaded.available:
+            available.append(loaded)
+
+    return available
+
+
+# ============================================================
+# GET UNAVAILABLE MODULES
+# ============================================================
 
 def get_unavailable_modules() -> list[RegistryModule]:
     """
-    Return modules that failed to load.
+    Load all modules and return those that are unavailable.
     """
 
-    return [
-        module
-        for module in MODULES.values()
-        if not module.available
-    ]
+    unavailable: list[RegistryModule] = []
 
+    for module in MODULES.values():
+
+        loaded = _load_module(module)
+
+        if not loaded.available:
+            unavailable.append(loaded)
+
+    return unavailable
+
+
+# ============================================================
+# GET ALL MODULES
+# ============================================================
 
 def get_all_modules() -> list[RegistryModule]:
     """
-    Return every registered module.
+    Return all registered module definitions.
+
+    Unlike get_available_modules(), this does not force module
+    imports.
     """
 
     return list(MODULES.values())
 
 
+# ============================================================
+# MODULE EXISTS
+# ============================================================
+
 def module_exists(
     key: str,
 ) -> bool:
     """
-    Check whether a module exists.
+    Check whether a module key is registered.
+
+    Does not import the module.
     """
 
     return key in MODULES
 
 
+# ============================================================
+# MODULE AVAILABILITY
+# ============================================================
+
 def module_is_available(
     key: str,
 ) -> bool:
     """
-    Check whether a module exists and is available.
+    Check whether a module exists and loads successfully.
     """
 
     module = get_module(key)
@@ -370,7 +463,7 @@ def module_is_available(
 
 
 # ============================================================
-# MODULE RENDERING
+# RENDER MODULE
 # ============================================================
 
 def render_module(
@@ -407,6 +500,9 @@ def render_module(
 
         module = module_or_key
 
+        if not module.loaded:
+            module = _load_module(module)
+
     # --------------------------------------------------------
     # Module not found
     # --------------------------------------------------------
@@ -442,20 +538,20 @@ def render_module(
         return
 
     # --------------------------------------------------------
-    # Missing renderer
+    # Renderer missing
     # --------------------------------------------------------
 
     if module.render is None:
 
         st.warning(
             f"{module.label} does not currently "
-            "have a render function."
+            "provide a render function."
         )
 
         return
 
     # --------------------------------------------------------
-    # Render module
+    # Render
     # --------------------------------------------------------
 
     try:
@@ -481,7 +577,10 @@ def render_module(
 
 def get_registry_status() -> dict[str, int]:
     """
-    Return simple registry health statistics.
+    Return Registry health statistics.
+
+    This loads each module because availability cannot be known
+    without attempting the import.
     """
 
     total = len(MODULES)
@@ -502,19 +601,37 @@ def get_registry_status() -> dict[str, int]:
 
 
 # ============================================================
-# DEBUG / DIAGNOSTICS
+# MODULE ERRORS
 # ============================================================
 
 def get_module_errors() -> dict[str, str]:
     """
-    Return loading errors for unavailable modules.
+    Return loading errors for modules that failed.
     """
 
-    return {
-        module.key: module.error
-        for module in get_unavailable_modules()
-        if module.error
-    }
+    errors: dict[str, str] = {}
+
+    for module in MODULES.values():
+
+        loaded = _load_module(module)
+
+        if (
+            not loaded.available
+            and loaded.error
+        ):
+
+            errors[
+                loaded.key
+            ] = loaded.error
+
+    return errors
+
+
+# ============================================================
+# REGISTER DEFAULT MODULES
+# ============================================================
+
+initialize_registry()
 
 
 # ============================================================
@@ -534,4 +651,4 @@ __all__ = [
     "render_module",
     "get_registry_status",
     "get_module_errors",
-    ]
+]
