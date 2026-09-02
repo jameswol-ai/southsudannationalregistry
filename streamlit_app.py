@@ -20,6 +20,61 @@ from typing import Any
 
 import streamlit as st
 
+from modules.registry import (
+    get_module_errors,
+    get_registry_status,
+)
+
+
+def render_system_diagnostics() -> None:
+
+    st.subheader("System Diagnostics")
+
+    database_ok = st.session_state.get(
+        "database_connected",
+        False,
+    )
+
+    if database_ok:
+        st.success("Database: Connected")
+    else:
+        st.error("Database: Not connected")
+
+        if st.session_state.get("database_error"):
+            st.code(
+                st.session_state.database_error
+            )
+
+    status = get_registry_status()
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Registered Modules",
+        status["total"],
+    )
+
+    col2.metric(
+        "Available",
+        status["available"],
+    )
+
+    col3.metric(
+        "Unavailable",
+        status["unavailable"],
+    )
+
+    errors = get_module_errors()
+
+    if errors:
+
+        st.subheader("Module Errors")
+
+        for key, error in errors.items():
+
+            with st.expander(key):
+
+                st.code(error)
 
 # ============================================================
 # PAGE CONFIGURATION
