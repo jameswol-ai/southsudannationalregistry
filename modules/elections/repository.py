@@ -1,151 +1,99 @@
-"""
-Elections repository.
-
-Database access layer for voter records.
-"""
-
 from __future__ import annotations
 
 from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from database.models import (
+    Citizen,
+    VoterRecord,
+)
 
 
 class ElectionsRepository:
-    """
-    Repository responsible for database operations related
-    to elections and voter registration.
-    """
 
-    def __init__(self, session, VoterRecord, Citizen):
-        self.session = session
-        self.VoterRecord = VoterRecord
-        self.Citizen = Citizen
+    def __init__(
+        self,
+        db: Session,
+    ):
+        self.db = db
 
-    # =========================================================
-    # VOTERS
-    # =========================================================
+    def get_voter(
+        self,
+        voter_id: str,
+    ) -> VoterRecord | None:
+
+        return (
+            self.db.query(VoterRecord)
+            .filter(
+                VoterRecord.id == voter_id
+            )
+            .first()
+        )
+
+    def get_voter_by_citizen(
+        self,
+        citizen_id: str,
+    ) -> VoterRecord | None:
+
+        return (
+            self.db.query(VoterRecord)
+            .filter(
+                VoterRecord.citizen_id
+                == citizen_id
+            )
+            .first()
+        )
 
     def list_voters(
         self,
-        status: str | None = None,
-        constituency: str | None = None,
-        limit: int = 200,
-    ):
-        query = self.session.query(self.VoterRecord)
+        search: str | None = None,
+        limit: int = 500,
+    ) -> list[VoterRecord]:
 
-        if status:
-            query = query.filter(
-                self.VoterRecord.voter_status == status
+        query = self.db.query(
+            VoterRecord
+        )
+
+        if search:
+
+            pattern = (
+                f"%{search.strip()}%"
             )
 
-        if constituency:
-            query = query.filter(
-                self.VoterRecord.constituency == constituency
+            query = query.join(
+                Citizen
+            ).filter(
+                Citizen.full_name.ilike(
+                    pattern
+                )
             )
 
         return (
             query
-            .order_by(self.VoterRecord.created_at.desc())
+            .order_by(
+                VoterRecord.created_at.desc()
+            )
             .limit(limit)
             .all()
         )
 
-    def get_voter(self, voter_id):
-        return self.session.get(
-            self.VoterRecord,
-            voter_id,
-        )
-
-    def get_voter_by_citizen(self, citizen_id):
-        return (
-            self.session.query(self.VoterRecord)
-            .filter(
-                self.VoterRecord.citizen_id == citizen_id
-            )
-            .first()
-        )
-
-    def get_voter_by_number(self, voter_id_number):
-        if not voter_id_number:
-            return None
-
-        return (
-            self.session.query(self.VoterRecord)
-            .filter(
-                self.VoterRecord.voter_id_number
-                == voter_id_number
-            )
-            .first()
-        )
-
-    def add_voter(self, voter):
-        self.session.add(voter)
-        self.session.flush()
-        return voter
-
-    def delete_voter(self, voter):
-        self.session.delete(voter)
-
-    # =========================================================
-    # CITIZENS
-    # =========================================================
-
-    def citizen_exists(self, citizen_id) -> bool:
-        return (
-            self.session.get(
-                self.Citizen,
-                citizen_id,
-            )
-            is not None
-        )
-
-    def get_citizen(self, citizen_id):
-        return self.session.get(
-            self.Citizen,
-            citizen_id,
-        )
-
-    # =========================================================
-    # STATISTICS
-    # =========================================================
-
     def count_voters(self) -> int:
-        return (
-            self.session.query(
-                func.count(self.VoterRecord.id)
+
+        return int(
+            self.db.query(
+                func.count(
+                    VoterRecord.id
+                )
             ).scalar()
             or 0
         )
 
-    def count_active_voters(self) -> int:
-        return (
-            self.session.query(
-                func.count(self.VoterRecord.id)
-            )
-            .filter(
-                self.VoterRecord.voter_status == "Active"
-            )
-            .scalar()
-            or 0
-        )
+    def add_voter(
+        self,
+        voter: VoterRecord,
+    ) -> VoterRecord:
 
-    def count_voted(self) -> int:
-        return (
-            self.session.query(
-                func.count(self.VoterRecord.id)
-            )
-            .filter(
-                self.VoterRecord.has_voted.is_(True)
-            )
-            .scalar()
-            or 0
-        )
+        self.db.add(voter)
+        self.db.flush()
 
-    # =========================================================
-    # TRANSACTION CONTROL
-    # =========================================================
-
-    def save(self):
-        self.session.commit()
-
-    def rollback(self):
-        self.session.rollback()
+        return voter
